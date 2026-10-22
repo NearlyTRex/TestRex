@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pytest-testrex"
-version = "0.1.0"
+version = "0.1.1"
 description = "A pytest plugin that holds a test suite to one layout and one standard of test quality"
 readme = "README.md"
 license = "MIT"
