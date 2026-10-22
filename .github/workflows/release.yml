@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   pending:
     name: Pending
-    uses: NearlyTRex/Workflows/.github/workflows/release-check.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    uses: NearlyTRex/Workflows/.github/workflows/release-check.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
     with:
@@ -23,43 +23,21 @@ jobs:
     name: Check
     needs: pending
     if: needs.pending.outputs.pending == 'true'
-    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
 
   build:
     name: Build
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    uses: NearlyTRex/Workflows/.github/workflows/python-build.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      # Without isolation, so the backend is the hash-locked one rather than
-      # whatever setuptools is newest when this runs
-      - name: Build
-        run: |
-          pip install --require-hashes --no-deps -r requirements-build.txt
-          python -m build --no-isolation
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
 
   release:
     name: Release
     needs: build
-    uses: NearlyTRex/Workflows/.github/workflows/release.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    uses: NearlyTRex/Workflows/.github/workflows/release.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: write
     with:
@@ -67,8 +45,9 @@ jobs:
       assets: dist
       checksums: true
 
-  # Here rather than in a reusable workflow: PyPI's trusted publishing matches
-  # this file, release.yml, and the pypi environment, so no token is stored
+  # A job of this file rather than a reusable workflow: PyPI's trusted
+  # publisher names this file, release.yml, and the pypi environment, so no
+  # token is stored, and it accepts no workflow called from another repository
   publish:
     name: Publish to PyPI
     needs: release
@@ -81,9 +60,4 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist/
-
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+      - uses: NearlyTRex/Workflows/actions/pypi-publish@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18

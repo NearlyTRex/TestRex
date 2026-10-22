@@ -16,7 +16,7 @@ concurrency:
 jobs:
   python:
     name: Python
-    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
     # with:
@@ -25,6 +25,6 @@ jobs:
 
   lint:
     name: Lint
-    uses: NearlyTRex/Workflows/.github/workflows/lint.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    uses: NearlyTRex/Workflows/.github/workflows/lint.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
