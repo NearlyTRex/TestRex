@@ -33,7 +33,7 @@ CLEAN_SETTINGS = """
     command_paths = ["pkg/cli.py"]
     standards = [
         "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-        "no-narration", "commented-out-code", "long-functions",
+        "no-narration", "commented-out-code", "long-functions", "long-modules",
     ]
     """
 
@@ -119,10 +119,11 @@ BROKEN_SETTINGS = """
     library_targets = ["pkg"]
     doc_style = "comment"
     doc_max_lines = 1
+    max_module_lines = 20
     wrappers = { "json.dumps" = "pkg.serialization.dumps" }
     standards = [
         "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-        "no-narration", "commented-out-code", "long-functions",
+        "no-narration", "commented-out-code", "long-functions", "long-modules",
     ]
     """
 

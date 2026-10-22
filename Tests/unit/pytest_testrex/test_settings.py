@@ -72,7 +72,8 @@ def test_fixture_programs_add_to_the_shell_ones(tmp_path):
     ({"baseline": {"no-print": -1}}, "baseline counts must be whole numbers of findings: ['no-print']"),
     ({"baseline": {"no-print": 1.5}}, "baseline counts must be whole numbers of findings: ['no-print']"),
     ({"doc_max_lines": -1}, "doc_max_lines must be 0 (no limit) or more, not -1"),
-    ({"max_nesting": 0}, "max_function_lines and max_nesting must be at least 1"),
+    ({"max_nesting": 0}, "max_function_lines, max_nesting and max_module_lines must be at least 1"),
+    ({"max_module_lines": 0}, "max_function_lines, max_nesting and max_module_lines must be at least 1"),
 ])
 def test_a_wrong_setting_is_refused(tmp_path, table, message):
     with pytest.raises(settings.SettingsError, match = re.escape(message)):
@@ -88,3 +89,4 @@ def test_library_paths_are_absolute_and_the_rest_is_kept(tmp_path):
     assert loaded.command_paths == (str(tmp_path / "pkg" / "cli"),)
     assert (loaded.wrappers, loaded.standards, loaded.baseline) == ({"open": "fileops"}, ("no-print",), {"no-print": 4})
     assert (loaded.doc_style, loaded.doc_max_lines, loaded.max_function_lines, loaded.max_nesting) == ("comment", 2, 40, 3)
+    assert loaded.max_module_lines == 900

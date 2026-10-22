@@ -222,5 +222,15 @@ def test_functions_past_the_limits_are_reported(parse_sample):
         "long line 4: 6 lines, at most 5", "deep line 10: nested 3 deep, at most 2"]
 
 
+def test_a_module_past_the_limit_is_one_finding_saying_how_to_split_it():
+    assert standards.long_module("a = 1\nb = 2\n", 2) == []
+
+    finding, = standards.long_module("a = 1\nb = 2\nc = 3\n", 2)
+
+    assert finding.startswith("3 lines, at most 2; make it a package of the same name")
+    assert "mixin" in finding and "re-exported from __init__.py" in finding
+
+
 def test_every_standard_has_a_check():
-    assert set(standards.STANDARDS) == set(standards.CHECKS) | set(standards.SOURCE_CHECKS) | {"long-functions"}
+    assert set(standards.STANDARDS) == set(standards.CHECKS) | set(standards.SOURCE_CHECKS) | {
+        "long-functions", "long-modules"}

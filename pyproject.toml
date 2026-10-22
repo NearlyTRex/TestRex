@@ -67,7 +67,7 @@ doc_style = "either"
 doc_max_lines = 3
 standards = [
     "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-    "no-narration", "commented-out-code", "long-functions",
+    "no-narration", "commented-out-code", "long-functions", "long-modules",
 ]
 sealed_programs = ["sudo", "ssh"]
 

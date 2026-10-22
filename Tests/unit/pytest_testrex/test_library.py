@@ -69,11 +69,20 @@ def run(items=[]):
     ({"standards": ["mutable-defaults"]}, "mutable-defaults", ["run line 2"]),
     ({"standards": ["no-narration"]}, "no-narration", []),
     ({"standards": ["long-functions"], "max_function_lines": 1}, "long-functions", ["run line 2: 2 lines, at most 1"]),
+    ({"standards": ["long-modules"]}, "long-modules", []),
 ])
 def test_each_rule_finds_its_own_problems_in_a_file(write_file, tmp_path, table, rule, expected):
     path = write_file("pkg/mod.py", LIBRARY_SOURCE)
 
     assert library.file_findings(configured(tmp_path, **table), rule, str(path)) == expected
+
+
+def test_a_module_longer_than_max_module_lines_is_found(write_file, tmp_path):
+    path = write_file("pkg/mod.py", LIBRARY_SOURCE)
+
+    found = library.file_findings(configured(tmp_path, standards = ["long-modules"], max_module_lines = 2), "long-modules", str(path))
+
+    assert [finding.split(";")[0] for finding in found] == ["3 lines, at most 2"]
 
 
 def test_the_wrappers_themselves_may_make_the_raw_calls(write_file, tmp_path):

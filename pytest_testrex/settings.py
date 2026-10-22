@@ -64,9 +64,10 @@ DEFAULTS = {
     "standards": [],
     # Command entry points, which may print and exit
     "command_paths": [],
-    # The long-functions standard's limits
+    # The long-functions and long-modules standards' limits
     "max_function_lines": 40,
     "max_nesting": 3,
+    "max_module_lines": 900,
     # {library rule: findings allowed}, to adopt a rule before every finding is
     # fixed; a count that drops must be lowered, so progress is never lost
     "baseline": {},
@@ -109,6 +110,7 @@ class Settings:
     command_paths: tuple
     max_function_lines: int
     max_nesting: int
+    max_module_lines: int
     baseline: dict
 
     # The suites, as directories
@@ -154,8 +156,8 @@ def check_library_settings(values):
     unknown = sorted(set(values["baseline"]) - set(LIBRARY_RULES))
     if unknown:
         raise SettingsError("[tool.testrex] baseline has no rule %s; known: %s" % (unknown, ", ".join(LIBRARY_RULES)))
-    if values["max_function_lines"] < 1 or values["max_nesting"] < 1:
-        raise SettingsError("[tool.testrex] max_function_lines and max_nesting must be at least 1")
+    if min(values["max_function_lines"], values["max_nesting"], values["max_module_lines"]) < 1:
+        raise SettingsError("[tool.testrex] max_function_lines, max_nesting and max_module_lines must be at least 1")
     if values["doc_max_lines"] < 0:
         raise SettingsError("[tool.testrex] doc_max_lines must be 0 (no limit) or more, not %d" % values["doc_max_lines"])
     counts = [rule for rule, count in values["baseline"].items() if type(count) is not int or count < 0]
@@ -201,6 +203,7 @@ def from_table(table, repo_root):
         command_paths = tuple(os.path.join(repo_root, path) for path in values["command_paths"]),
         max_function_lines = values["max_function_lines"],
         max_nesting = values["max_nesting"],
+        max_module_lines = values["max_module_lines"],
         baseline = dict(values["baseline"]))
 
 

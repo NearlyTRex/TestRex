@@ -79,6 +79,8 @@ def file_findings(settings, rule, path):
         return []
     if rule == "long-functions":
         return standards.long_functions(tree, settings.max_function_lines, settings.max_nesting)
+    if rule == "long-modules":
+        return standards.long_module(read_source(path), settings.max_module_lines)
     if rule in standards.SOURCE_CHECKS:
         return standards.SOURCE_CHECKS[rule](tree, read_source(path))
     return standards.CHECKS[rule](tree)
