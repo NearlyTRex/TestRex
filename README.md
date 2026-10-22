@@ -119,6 +119,19 @@ The rules above read the tests. These read the code under `library_targets`, and
 | `no-narration` | `standards` | a comment or docstring, in the library or the tests, tells how the code came to be: "now fixed", "was previously", "as discussed", "I added" |
 | `commented-out-code` | `standards` | a comment is a statement commented out; an indented example in a comment block is not |
 | `long-functions` | `standards` | a function runs past `max_function_lines` (40) or nests past `max_nesting` (3) |
+| `long-modules` | `standards` | a module runs past `max_module_lines` (900), the same limit test files have |
+
+A module past the limit becomes a package of the same name. Its class is assembled from mixin
+modules, one per area, and re-exported, so callers still `from pkg.sync import Syncer` and the class
+behaves as before:
+
+```text
+pkg/sync.py               →  pkg/sync/__init__.py    from .local import LocalMixin
+                                                     from .remote import RemoteMixin
+                                                     class Syncer(LocalMixin, RemoteMixin): ...
+                             pkg/sync/local.py       class LocalMixin: ...
+                             pkg/sync/remote.py      class RemoteMixin: ...
+```
 
 Tests and pytest hooks are described by their names, so the documentation rules leave them alone.
 Calls are matched through imports: `from subprocess import run as go; go()` is `subprocess.run`.
@@ -233,6 +246,7 @@ or one of the wrong type, stops the run.
 | `standards` | `[]` | The built-in coding standards to hold the library to |
 | `command_paths` | `[]` | Command entry points, which may print and exit |
 | `max_function_lines`, `max_nesting` | `40`, `3` | The `long-functions` limits |
+| `max_module_lines` | `900` | The `long-modules` limit |
 | `baseline` | `{}` | `{rule: findings allowed}`, to adopt a library rule before every finding is fixed |
 
 ## Developing

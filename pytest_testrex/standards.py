@@ -18,7 +18,7 @@ from pytest_testrex.discovery import FUNCTION_DEFS
 ###########################################################
 
 STANDARDS = ("no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-             "no-narration", "commented-out-code", "long-functions")
+             "no-narration", "commented-out-code", "long-functions", "long-modules")
 
 # Phrases that tell how the code came to be rather than what it is: a
 # conversation, an edit history, the narration of the work, or a flourish.
@@ -239,6 +239,16 @@ def long_functions(tree, max_lines, max_nesting):
             if depth > max_nesting:
                 found.append("%s line %d: nested %d deep, at most %d" % (node.name, node.lineno, depth, max_nesting))
     return found
+
+
+
+# The module, past max_lines, as one finding saying how to split it
+def long_module(source, max_lines):
+    length = len(source.splitlines())
+    if length <= max_lines:
+        return []
+    return ["%d lines, at most %d; make it a package of the same name, its class assembled from mixin "
+            "modules and re-exported from __init__.py, so callers import and use it as before" % (length, max_lines)]
 
 
 CHECKS = {
