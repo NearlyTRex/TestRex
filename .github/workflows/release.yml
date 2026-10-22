@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   pending:
     name: Pending
-    uses: NearlyTRex/Workflows/.github/workflows/release-check.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
+    uses: NearlyTRex/Workflows/.github/workflows/release-check.yml@fbb6855b4044a6526d82092742b83fba5940a3f0 # v0.2.19
     permissions:
       contents: read
     with:
@@ -23,7 +23,7 @@ jobs:
     name: Check
     needs: pending
     if: needs.pending.outputs.pending == 'true'
-    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
+    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@fbb6855b4044a6526d82092742b83fba5940a3f0 # v0.2.19
     permissions:
       contents: read
     # The same inputs as the python job in ci.yml
@@ -40,14 +40,14 @@ jobs:
   build:
     name: Build
     needs: check
-    uses: NearlyTRex/Workflows/.github/workflows/python-build.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
+    uses: NearlyTRex/Workflows/.github/workflows/python-build.yml@fbb6855b4044a6526d82092742b83fba5940a3f0 # v0.2.19
     permissions:
       contents: read
 
   release:
     name: Release
     needs: build
-    uses: NearlyTRex/Workflows/.github/workflows/release.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
+    uses: NearlyTRex/Workflows/.github/workflows/release.yml@fbb6855b4044a6526d82092742b83fba5940a3f0 # v0.2.19
     permissions:
       contents: write
     with:
@@ -70,4 +70,4 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: NearlyTRex/Workflows/actions/pypi-publish@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
+      - uses: NearlyTRex/Workflows/actions/pypi-publish@fbb6855b4044a6526d82092742b83fba5940a3f0 # v0.2.19
