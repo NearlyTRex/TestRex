@@ -11,7 +11,7 @@ A pytest plugin that holds a test suite to one layout and one standard of test q
 My repos share one way of laying out and writing tests. This plugin carries the rules, so a repo
 gets them, and every fix to them, through one dependency bump instead of a copied meta suite.
 
-It does three things:
+It does four things:
 
 - **The meta suite.** Around thirty rules that read every test file and fail on tests that cannot
   fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, broken
@@ -22,6 +22,8 @@ It does three things:
 - **Hermetic runs.** Outbound network is closed to tests unless they are marked `allow_network`,
   and the programs a repo seals (`sudo`, `ssh`, a password manager) are refused however a test
   starts them.
+- **Shell scripts.** Coverage for the bash scripts tests run, which coverage.py never sees, and a
+  disposable machine to run setup scripts in as root without touching the real one.
 
 ## Setting up a repo
 
@@ -112,6 +114,48 @@ def pytest_testrex_requirement_checkers(config):
     return {"requires_tool": lambda names: [f"{name} (tool)" for name in names if not installed(name)]}
 ```
 
+## Shell scripts
+
+Both plugins load with the package and do nothing until asked.
+
+**Shell coverage** measures the bash scripts the tests run, by statement, or with
+`--shell-cov-branch` also by each right-hand side of `&&` and `||`. It reads scripts with
+tree-sitter-bash, which the `shell` extra installs (`pip install "pytest-testrex[shell]"`, or add
+`tree-sitter` and `tree-sitter-bash` to a hash-locked requirements file):
+
+```bash
+pytest --shell-cov-source scripts --shell-cov-source install.sh --shell-cov-fail-under 100
+```
+
+| Option | What it does |
+|---|---|
+| `--shell-cov-source PATH` | A script, or a directory searched for `*.sh` and `*.bash`, relative to the rootdir; repeatable |
+| `--shell-cov-exclude GLOB` | Leaves out scripts whose path from the rootdir matches, such as vendored ones; repeatable |
+| `--shell-cov-branch` | Also counts the right-hand side of each `&&` and `\|\|` as a statement that must run |
+| `--shell-cov-report` | Prints the report without a floor |
+| `--shell-cov-fail-under N` | Fails the run below N percent |
+
+Every bash a test starts is traced through `BASH_ENV`, inherited from the environment. A test that
+builds its own environment takes it from the `shell_traced_env` fixture. Only bash is traced: `sh`
+(dash) never reads `BASH_ENV`.
+
+**The shell sandbox** runs a script as root in a user namespace with no network, with `/etc`,
+`/var`, `/home` and the rest replaced by empty directories the test owns. `PATH` holds recording
+stubs and an allowlist of harmless tools, so a command nobody planned for fails rather than running
+for real:
+
+```python
+@pytest.mark.requires_binary("bash", "unshare")
+def test_enables_the_service(shell_sandbox):
+    shell_sandbox.run("scripts/setup.sh", "install")
+    assert shell_sandbox.ran("systemctl", "enable", "myservice")
+```
+
+It needs Linux with unprivileged user namespaces. Ubuntu 24.04 restricts them, so CI sets
+`kernel.apparmor_restrict_unprivileged_userns=0` first. Where they are unavailable its tests skip,
+or fail with `--shell-sandbox-required`. Override the `shell_sandbox_options` fixture to add stubs
+(`extra_stubs`), tools (`extra_tools`), accounts and hidden directories.
+
 ## Settings
 
 Every path is relative to the directory holding `pyproject.toml`. A setting the plugin doesn't know,
@@ -143,6 +187,14 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install --require-hashes --no-deps -r requirements-dev.txt
 pip install --no-deps --no-build-isolation -e .
 pytest -q
+```
+
+The sandbox tests need unprivileged user namespaces and skip without them; the shell coverage
+tests need bash, and its cross-check against a real parser needs `shfmt`, which `shfmt-py` puts
+next to the venv's Python. To check any script's statements against shfmt:
+
+```bash
+python Tests/shfmt_oracle.py path/to/a.sh path/to/b.sh
 ```
 
 The library is held to its own rules: `Tests/unit/meta/test_testrex.py` runs the suite over these
