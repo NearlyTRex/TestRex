@@ -21,15 +21,14 @@ def import_roots(tests_dir, all_files):
     return sorted(roots)
 
 
-# Every file in the suites, and the .py files at the top of tests_dir that
-# they share. Files, not directories: given a directory, pylint names its
-# modules after it, and a test directory mirroring a package, such as
-# Tests/unit/mypackage, would then shadow the package itself.
+# Every suite file and the shared .py files atop tests_dir. Files, not directories:
+# pylint names a directory's modules after it, so Tests/unit/mypackage would shadow mypackage.
 def pylint_targets(tests_dir, suite_files):
     return list(suite_files) + [
         os.path.join(tests_dir, name) for name in sorted(os.listdir(tests_dir)) if name.endswith(".py")]
 
 
+# Run pylint with the rcfile from cwd, with roots on PYTHONPATH, and return the finished process
 def run_pylint(rcfile, cwd, roots, *arguments):
     env = dict(os.environ, PYTHONPATH = os.pathsep.join(roots))
     return subprocess.run(
@@ -37,5 +36,6 @@ def run_pylint(rcfile, cwd, roots, *arguments):
         cwd = cwd, env = env, capture_output = True, text = True, check = False)
 
 
+# Pylint arguments that turn every rule off except these
 def only_rules(rules):
     return ["--disable=all", "--enable=" + ",".join(rules)]

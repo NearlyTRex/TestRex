@@ -20,6 +20,7 @@ from pytest_testrex.discovery import FUNCTION_DEFS, checks_in, collected_tests
 CONDITIONAL = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try)
 
 
+# Whether a test makes a check anywhere, even one that may never run
 def has_any_check(function, checkers = frozenset()):
     return bool(checks_in(function.body, (), checkers))
 
@@ -29,6 +30,7 @@ def has_unconditional_check(function, checkers = frozenset()):
     return bool(checks_in(function.body, CONDITIONAL, checkers))
 
 
+# name (line N), to point at a function in a failure
 def label(function):
     return "%s (line %d)" % (function.name, function.lineno)
 

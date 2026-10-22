@@ -62,4 +62,15 @@ meta_dirs = ["unit/meta"]
 min_test_files = 10
 signature_packages = ["pytest_testrex"]
 library_targets = ["pytest_testrex"]
+# The shell plugins came from Workflows with docstrings; the rest uses comments
+doc_style = "either"
+doc_max_lines = 3
+standards = [
+    "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
+    "no-narration", "commented-out-code", "long-functions",
+]
 sealed_programs = ["sudo", "ssh"]
+
+[tool.testrex.baseline]
+# Functions nested past three levels; lowered as each is split, never raised
+long-functions = 12

@@ -19,6 +19,7 @@ from pytest_testrex.discovery import defines_tests, is_ignored, parsed
 SUPPORT_FILES = {"conftest.py"}
 
 
+# (root, subdirectories) under each suite, skipping caches, hidden and ignored directories
 def walk_directories(suite_dirs, ignored_dirs = ()):
     for suite_dir in suite_dirs:
         for root, dirs, _ in os.walk(suite_dir):
@@ -34,6 +35,7 @@ def discover_split_packages(suite_dirs, ignored_dirs = ()):
                   for name in dirs if name.startswith("test_"))
 
 
+# Whether a directory has a .py file anywhere under it
 def holds_python(directory):
     return any(name.endswith(".py") for _, _, files in os.walk(directory) for name in files)
 
@@ -48,15 +50,18 @@ def discover_mirror_directories(suite_dirs, ignored_dirs = ()):
     return sorted(found)
 
 
+# The suite directory a path is inside
 def suite_of(path, suite_dirs):
     return next(suite for suite in suite_dirs if path.startswith(suite + os.sep))
 
 
+# The names of the .py files directly in a directory, sorted
 def python_files(directory):
     return sorted(name for name in os.listdir(directory)
                   if name.endswith(".py") and os.path.isfile(os.path.join(directory, name)))
 
 
+# Whether a file name is one pytest collects tests from
 def is_test_module_name(name):
     return name.startswith("test_") and name.endswith(".py")
 
@@ -83,6 +88,7 @@ def mirror_targets(directory, suite_dir, repo_root):
     return [os.path.join(repo_root, relative_path), os.path.join(repo_root, "." + relative_path)]
 
 
+# The test_<name>.py beside a test_<name>/ package, when both exist
 def single_file_twin(package):
     twin = package + ".py"
     return twin if os.path.exists(twin) else None

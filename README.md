@@ -11,7 +11,7 @@ A pytest plugin that holds a test suite to one layout and one standard of test q
 My repos share one way of laying out and writing tests. This plugin carries the rules, so a repo
 gets them, and every fix to them, through one dependency bump instead of a copied meta suite.
 
-It does four things:
+It does five things:
 
 - **The meta suite.** Around thirty rules that read every test file and fail on tests that cannot
   fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, broken
@@ -24,6 +24,9 @@ It does four things:
   starts them.
 - **Shell scripts.** Coverage for the bash scripts tests run, which coverage.py never sees, and a
   disposable machine to run setup scripts in as root without touching the real one.
+- **Library standards.** Documentation and coding-standard rules for the repository's own code,
+  each adopted with a baseline count that may only fall, so a codebase moves towards them a fix at
+  a time.
 
 ## Setting up a repo
 
@@ -96,6 +99,50 @@ mirrors the source, two suites can hold files with the same basename, so run pyt
 A check counts as an `assert`, a mock's `assert_*`, `pytest.fail`, a `pytest.raises` or
 `pytest.warns` block, or a call to a helper that makes one, including helpers imported by name from
 a `*_helpers.py` beside the test or above it.
+
+## Library standards
+
+The rules above read the tests. These read the code under `library_targets`, and each is off until
+`[tool.testrex]` turns it on.
+
+| Rule | Turned on by | Fails when |
+|---|---|---|
+| `documented` | `doc_style` | a public function, class or method has no comment directly above it (`"comment"`), no docstring (`"docstring"`), or neither (`"either"`); docstring style also wants a module docstring |
+| `doc-sections` | `doc_style` | a docstring's `Args:` names a parameter the function doesn't take, or `Returns:` documents a value it never returns |
+| `doc-length` | `doc_max_lines` | a description runs past that many lines; `Args:` and the other sections don't count |
+| `doc-paraphrase` | `doc_style` | a description says no more than the name, as `# Get the settings` over `get_settings` |
+| `wrappers` | `wrappers` | the library calls something directly that the repository wraps, such as `open` instead of its file helpers; the wrappers' own files, `wrapper_modules`, may |
+| `no-print`, `no-exit` | `standards` | library code prints, or exits instead of raising; `command_paths` may do both |
+| `mutable-defaults` | `standards` | a default argument is a list, dict or set every call shares |
+| `bare-except` | `standards` | an `except:` names no exception, so it also catches `KeyboardInterrupt` |
+| `import-time-io` | `standards` | importing the module reads the environment, opens a file or runs a program |
+| `no-narration` | `standards` | a comment or docstring, in the library or the tests, tells how the code came to be: "now fixed", "was previously", "as discussed", "I added" |
+| `commented-out-code` | `standards` | a comment is a statement commented out; an indented example in a comment block is not |
+| `long-functions` | `standards` | a function runs past `max_function_lines` (40) or nests past `max_nesting` (3) |
+
+Tests and pytest hooks are described by their names, so the documentation rules leave them alone.
+Calls are matched through imports: `from subprocess import run as go; go()` is `subprocess.run`.
+
+```toml
+[tool.testrex]
+library_targets = ["Shared"]
+doc_style = "comment"
+doc_max_lines = 3
+wrappers = { "open" = "joybox.fileops", "json.dumps" = "joybox.serialization" }
+wrapper_modules = ["Shared/joybox/fileops.py", "Shared/joybox/serialization.py"]
+command_paths = ["Shared/joybox/cli"]
+standards = ["no-print", "no-exit", "mutable-defaults", "bare-except", "no-narration"]
+
+[tool.testrex.baseline]
+documented = 819
+no-print = 40
+```
+
+**Adopting a rule gradually.** A codebase rarely meets a new rule on the day it is turned on, so
+each rule counts its findings across the whole library and compares the count with its baseline,
+zero when it has none. More findings than the baseline fail, listing them. Fewer fail too, asking
+for the baseline to be lowered to the new count, so a fix stays fixed and the count only falls. The
+baseline is a number, not a list of excused places: a new finding anywhere is a failure.
 
 ## Required programs
 
@@ -179,6 +226,14 @@ or one of the wrong type, stops the run.
 | `signature_packages` | `[]` | Packages whose overrides must keep their base method's signature |
 | `sealed_programs` | `[]` | Programs a test may never start for real |
 | `block_network` | `true` | Refuse in-process outbound connections unless a test is marked `allow_network` |
+| `doc_style` | `""` | How library code is documented: `"comment"`, `"docstring"` or `"either"` |
+| `doc_max_lines` | `0` | The longest a description may run; `0` sets no limit |
+| `wrappers` | `{}` | `{call: what to use instead}` for calls the library makes through a wrapper |
+| `wrapper_modules` | `[]` | The wrappers' own files, which make those calls |
+| `standards` | `[]` | The built-in coding standards to hold the library to |
+| `command_paths` | `[]` | Command entry points, which may print and exit |
+| `max_function_lines`, `max_nesting` | `40`, `3` | The `long-functions` limits |
+| `baseline` | `{}` | `{rule: findings allowed}`, to adopt a library rule before every finding is fixed |
 
 ## Developing
 

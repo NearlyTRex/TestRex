@@ -97,6 +97,7 @@ class ShellParseError(Exception):
 
 @functools.lru_cache(maxsize=1)
 def get_parser():
+    """The tree-sitter-bash parser, or ShellParseError saying how to install it."""
     try:
         import tree_sitter_bash
         from tree_sitter import Language, Parser
@@ -108,6 +109,7 @@ def get_parser():
 
 
 def line_of(point):
+    """The 1-based line of a tree-sitter (row, column) point."""
     return point[0] + 1
 
 
@@ -143,16 +145,19 @@ def inner(node):
 
 
 def is_arithmetic(node):
+    """Whether a node is an arithmetic (( ... )) command."""
     # `(( ... ))` is a compound_statement with no braces
     return node.type == "compound_statement" and node.text.startswith(b"((")
 
 
 def is_simple(node):
+    """Whether a node, inside any redirections, is a command xtrace prints a line for."""
     node = inner(node)
     return node.type in SIMPLE or is_arithmetic(node)
 
 
 def is_multi_line_substitution(node):
+    """Whether a node is a $( ) or <( ) spanning several lines."""
     # bash numbers the lines inside a multi-line $( ) unreliably, so the
     # substitution is part of the statement that holds it
     return node.type in SUBSTITUTIONS and node.start_point[0] != node.end_point[0]
@@ -286,12 +291,9 @@ def chain_operands(node, operator=None):
 
 
 def find_branches(source):
-    """The right-hand side of each && and || a trace can speak for, as dicts with
-    the `line` its command is on, the `key` the trace names it by and a `text`
-    for the report. Left alone: a command that isn't a literal word, a group or
-    subshell over several lines (its body has statements of its own) and a
-    command named like an earlier one on the same line (a trace of the line
-    can't tell them apart)."""
+    """Each && and || right-hand side a trace can speak for, as {line, key, text} dicts.
+
+    Skipped: non-literal commands, multi-line groups, and a name repeated on one line."""
     lines = source.encode().split(b"\n")
     found = {}
 
@@ -378,6 +380,7 @@ def read_traces(trace_dir, words=False):
 
 
 def read_script(path):
+    """The text of a script, refusing one too big to be a script a person wrote."""
     with open(path, encoding="utf-8", errors="replace") as handle:
         source = handle.read(MAX_SCRIPT_BYTES + 1)
     if len(source) > MAX_SCRIPT_BYTES:
@@ -406,6 +409,7 @@ def is_excluded(name, patterns):
 
 
 def is_statement_run(statement, lines_run):
+    """Whether any traced line falls inside a statement's (first, last) lines."""
     first, last = statement
     return any(first <= line <= last for line in lines_run)
 
@@ -461,12 +465,14 @@ def measure(root, sources, trace_dir, branch=False, exclude=()):
 
 
 def get_percent(result):
+    """The percent of a script's statements that ran; 100 when it has none."""
     if result["statements"] == 0:
         return 100.0
     return 100.0 * result["covered"] / result["statements"]
 
 
 def get_total_percent(results):
+    """The percent of every script's statements that ran; 100 when there are none."""
     statements = sum(result["statements"] for result in results.values())
     if statements == 0:
         return 100.0
@@ -474,10 +480,12 @@ def get_total_percent(results):
 
 
 def meets_floor(results, floor):
+    """Whether the total reaches the floor; always, with no floor."""
     return floor is None or get_total_percent(results) >= floor
 
 
 def format_missed(missed, limit=8):
+    """Missed (first, last) spans as "3, 5-7", cut to limit spans."""
     spans = [f"{first}" if first == last else f"{first}-{last}" for first, last in missed]
     if len(spans) > limit:
         spans = spans[:limit] + ["..."]
@@ -541,17 +549,20 @@ def pytest_addoption(parser):
 
 
 def is_enabled(config):
+    """Whether any --shell-cov option asks for shell coverage."""
     return bool(config.getoption("--shell-cov-source") or config.getoption("--shell-cov-report")
                 or config.getoption("--shell-cov-fail-under") is not None)
 
 
 def is_worker(config):
+    """Whether this is a pytest-xdist worker rather than the controller."""
     # pytest-xdist workers inherit the controller's environment, trace
     # directory included; only the controller measures
     return hasattr(config, "workerinput")
 
 
 def get_sources(config):
+    """The --shell-cov-source paths made absolute, or the rootdir; a missing one is a usage error."""
     root = str(config.rootpath)
     sources = [os.path.join(root, source) for source in config.getoption("--shell-cov-source")] or [root]
     for source in sources:
@@ -595,11 +606,9 @@ def pytest_unconfigure(config):
 
 @pytest.fixture
 def shell_traced_env():
-    """Build an environment for running bash that traces it for coverage.
+    """Build a bash environment traced for coverage, from env or a copy of os.environ.
 
-    Pass the environment a test would otherwise give subprocess (default: a
-    copy of os.environ). Without shell coverage enabled it returns it as is.
-    """
+    Without shell coverage enabled it returns the environment unchanged."""
     def build(env=None):
         traced = dict(os.environ if env is None else env)
         if os.environ.get(TRACE_DIR_VARIABLE):

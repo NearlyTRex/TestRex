@@ -13,6 +13,7 @@ import os
 FUNCTION_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
+# Whether path is one of the ignored directories or inside one
 def is_ignored(path, ignored_dirs):
     return any(path == directory or path.startswith(directory + os.sep) for directory in ignored_dirs)
 
@@ -29,16 +30,19 @@ def discover_python_files(suite_dirs, test_modules_only, ignored_dirs = ()):
     return sorted(found)
 
 
+# The syntax tree of a file, parsed once and reused by every rule
 @functools.lru_cache(maxsize = None)
 def parsed(path):
     with open(path, "r", encoding = "utf-8") as handle:
         return ast.parse(handle.read())
 
 
+# A function pytest collects as a test
 def is_test_function(node):
     return isinstance(node, FUNCTION_DEFS) and node.name.startswith("test_")
 
 
+# A class pytest collects tests from
 def is_test_class(node):
     return isinstance(node, ast.ClassDef) and node.name.startswith("Test")
 
@@ -58,11 +62,13 @@ def defines_tests(tree):
     return any(is_test_function(node) or is_test_class(node) for node in tree.body)
 
 
+# Every parameter a function names, positional or keyword
 def parameter_names(function):
     arguments = function.args
     return [argument.arg for argument in arguments.posonlyargs + arguments.args + arguments.kwonlyargs]
 
 
+# Whether a function is decorated as a pytest fixture
 def is_fixture(function):
     return any("fixture" in ast.unparse(decorator) for decorator in function.decorator_list)
 
@@ -75,12 +81,14 @@ def is_fixture(function):
 # name from a *_helpers.py beside the test, so those are followed too.
 ###########################################################
 
+# A with pytest.raises(...) or pytest.warns(...) block, which fails when nothing is raised
 def is_raises_block(node):
     return isinstance(node, ast.With) and any(
         any(word in ast.unparse(item.context_expr) for word in ("raises", "warns"))
         for item in node.items)
 
 
+# A call that fails the test when its expectation is unmet: assert*, pytest.fail or a known checker
 def is_check_call(node, checkers = frozenset()):
     if not isinstance(node, ast.Call):
         return False

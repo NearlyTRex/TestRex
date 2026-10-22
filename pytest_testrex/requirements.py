@@ -27,6 +27,7 @@ def marker_calls(nodes, marker):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == marker]
 
 
+# The literal program names a marker names within nodes
 def marked_names(nodes, marker = "requires_binary"):
     return {
         argument.value for call in marker_calls(nodes, marker) for argument in call.args
@@ -38,12 +39,14 @@ def accepted(names):
     return {option for name in names for option in name.split("|")}
 
 
+# The values a module assigns to pytestmark
 def module_marks(tree):
     return [
         node.value for node in tree.body if isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)]
 
 
+# Every program a module declares with a marker, at module, class or test level
 def declared_anywhere(tree, marker = "requires_binary"):
     decorators = [
         decorator for node in ast.walk(tree) if isinstance(node, FUNCTION_DEFS + (ast.ClassDef,))
@@ -124,6 +127,7 @@ def is_host_lookup(node):
             and isinstance(function.value, ast.Name) and function.value.id == "shutil")
 
 
+# Whether statements call pytest.skip or anything else named skip
 def calls_skip(statements):
     return any(
         isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "skip"
@@ -162,6 +166,7 @@ def non_literal_markers(tree, markers):
     return sorted(bad)
 
 
+# A call to subprocess.run, call, check_call, check_output or Popen
 def is_subprocess_call(node):
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in SUBPROCESS_CALLS
             and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess")
