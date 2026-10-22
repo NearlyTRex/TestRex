@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Only pull requests: a newer push supersedes their run. On main every run
+  # finishes, since each push's secret scan covers only that push's commits.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: Python
+    uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    permissions:
+      contents: read
+    # with:
+    #   commands: |
+    #     extra checks that run before the tests
+
+  lint:
+    name: Lint
+    uses: NearlyTRex/Workflows/.github/workflows/lint.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    permissions:
+      contents: read

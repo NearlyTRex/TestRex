@@ -1,0 +1,23 @@
+name: Prepare Release
+
+# Bumps the version and opens a PR. Merging it lets release.yml tag and publish.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: patch, minor, major, or an exact version like 1.4.0
+        required: true
+        default: patch
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: Prepare
+    uses: NearlyTRex/Workflows/.github/workflows/prepare-release.yml@ffafe3aa09651e679cee3ce17f828cca46f29196 # v0.2.17
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      bump: ${{ inputs.bump }}
+      version-file: pyproject.toml

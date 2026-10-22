@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytest-testrex"
+version = "0.1.0"
+description = "A pytest plugin that holds a test suite to one layout and one standard of test quality"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "pytest>=8",
+    "pylint>=3",
+]
+classifiers = [
+    "Framework :: Pytest",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/NearlyTRex/TestRex"
+Issues = "https://github.com/NearlyTRex/TestRex/issues"
+
+[project.entry-points.pytest11]
+testrex = "pytest_testrex.plugin"
+
+[tool.setuptools]
+packages = ["pytest_testrex"]
+
+[tool.setuptools.package-data]
+pytest_testrex = ["pylintrc"]
+
+[tool.pytest.ini_options]
+testpaths = ["Tests"]
+# The tree mirrors the source, so unit/ and any later suite can hold files
+# with the same basename, which the default prepend mode cannot import apart
+addopts = "--strict-markers -ra --import-mode=importlib -p pytester"
+
+[tool.coverage.run]
+branch = true
+source = ["pytest_testrex"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.testrex]
+suites = ["unit"]
+integration_suites = []
+meta_dirs = ["unit/meta"]
+# The meta suite runs over sample trees written by the tests themselves
+min_test_files = 10
+signature_packages = ["pytest_testrex"]
+library_targets = ["pytest_testrex"]
+sealed_programs = ["sudo", "ssh"]

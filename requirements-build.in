@@ -1,0 +1,5 @@
+# What the release builds the sdist and wheel with, without build isolation so
+# nothing unpinned is downloaded. Regenerate requirements-build.txt after editing:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-build.txt requirements-build.in
+build
+setuptools

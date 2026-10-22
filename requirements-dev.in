@@ -1,0 +1,6 @@
+# Test dependencies for this repo. Regenerate requirements-dev.txt after editing:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-dev.txt requirements-dev.in
+pytest
+pylint
+# CI installs this package with --no-build-isolation, so its build backend comes from here
+setuptools
