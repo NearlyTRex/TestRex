@@ -6,9 +6,10 @@ import os
 import pytest
 
 # Local imports
-from pytest_testrex import hygiene, layout, lint, quality, requirements, signatures
+from pytest_testrex import hygiene, layout, library, lint, quality, requirements, signatures, standards
 from pytest_testrex.discovery import (
     checker_names, defines_tests, discover_python_files, parsed)
+from pytest_testrex.settings import LIBRARY_RULES
 
 ###########################################################
 # The meta suite
@@ -25,6 +26,7 @@ from pytest_testrex.discovery import (
 # repository's [tool.testrex] settings. Nothing here imports a test.
 ###########################################################
 
+# What the meta suite reads, found once from the settings
 @dataclasses.dataclass(frozen = True)
 class Survey:
     settings: object
@@ -33,7 +35,9 @@ class Survey:
     integration_files: list
     split_packages: list
     mirror_directories: list
+    library_files: list
 
+    # A path relative to the tests directory, as it appears in test ids
     def relative(self, path):
         return os.path.relpath(path, self.settings.tests_dir)
 
@@ -45,9 +49,11 @@ class Survey:
                 ("integration_file", self.integration_files), ("split_package", self.split_packages),
                 ("mirror_directory", self.mirror_directories)]:
             found[argument] = (values, [self.relative(path) for path in values])
+        found["library_rule"] = (list(LIBRARY_RULES), list(LIBRARY_RULES))
         return found
 
 
+# Find every file and directory the rules are parametrized over
 def survey(settings):
     ignored = settings.ignored_dirs
     test_files = discover_python_files(settings.suite_dirs, True, ignored)
@@ -57,7 +63,8 @@ def survey(settings):
         all_files = discover_python_files(settings.suite_dirs, False, ignored),
         integration_files = discover_python_files(settings.integration_dirs, True, ignored),
         split_packages = layout.discover_split_packages(settings.suite_dirs, ignored),
-        mirror_directories = layout.discover_mirror_directories(settings.suite_dirs, ignored))
+        mirror_directories = layout.discover_mirror_directories(settings.suite_dirs, ignored),
+        library_files = library.discover_library_files(settings.library_targets))
 
 
 class TestRex:
@@ -270,6 +277,24 @@ class TestRex:
         found = signatures.mismatched_overrides(signatures.library_classes(packages).values())
 
         assert found == [], "overrides that break the contract of their base method: " + ", ".join(found)
+
+    ###########################################################
+    # Library code
+    #
+    # Documentation and coding standards, each held to its baseline count.
+    ###########################################################
+
+    def test_the_library_holds_to_the_rule(self, library_rule, testrex_survey):
+        settings = testrex_survey.settings
+        off = library.why_off(settings, library_rule)
+        if off:
+            pytest.skip(off)
+        files = testrex_survey.library_files + (
+            testrex_survey.all_files if library_rule in standards.TEST_STANDARDS else [])
+        found = library.findings(settings, library_rule, files)
+        problem = library.ratchet(library_rule, found, settings.baseline.get(library_rule, 0))
+
+        assert problem is None, problem
 
     ###########################################################
     # Pylint

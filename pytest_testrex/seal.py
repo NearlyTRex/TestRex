@@ -18,10 +18,12 @@ EXEC_FUNCTIONS = ["execv", "execve", "execvp", "execvpe", "execl", "execlp"]
 _unsealed = {}
 
 
+# Raised instead of starting a sealed program
 class SealedProgramError(RuntimeError):
     pass
 
 
+# The program a command would start, from an argument list or a shell string
 def get_program_name(args, shell = False):
     if isinstance(args, (str, bytes)):
         text = args.decode() if isinstance(args, bytes) else args
@@ -36,6 +38,7 @@ def get_program_name(args, shell = False):
     return ""
 
 
+# Refuse a command whose program is sealed
 def check_sealed(programs, args, shell = False):
     program = get_program_name(args, shell = shell)
     if program in programs:
@@ -43,6 +46,7 @@ def check_sealed(programs, args, shell = False):
             "tests may not run %s for real; replace whatever runs it with a fake" % program)
 
 
+# Whether the seal is in place
 def is_sealed():
     return bool(_unsealed)
 
@@ -78,6 +82,7 @@ def seal(programs):
     return True
 
 
+# Put back subprocess.Popen, os.system and os.exec* as they were before the seal
 def unseal():
     if "Popen" in _unsealed:
         subprocess.Popen = _unsealed.pop("Popen")

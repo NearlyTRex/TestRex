@@ -8,6 +8,7 @@ import pytest
 
 # Local imports
 from pytest_testrex import suite
+from pytest_testrex.settings import LIBRARY_RULES
 
 ###########################################################
 # The suite end to end
@@ -25,24 +26,55 @@ CLEAN_SETTINGS = """
     signature_packages = ["pkg"]
     library_targets = ["pkg"]
     sealed_programs = ["sudo"]
+    doc_style = "comment"
+    doc_max_lines = 2
+    wrappers = { "json.dumps" = "pkg.serialization.dumps" }
+    wrapper_modules = ["pkg/serialization.py"]
+    command_paths = ["pkg/cli.py"]
+    standards = [
+        "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
+        "no-narration", "commented-out-code", "long-functions",
+    ]
     """
 
 CLEAN_FILES = {
     "pkg/__init__.py": "",
     "pkg/mod.py": """
+        # The method every tool overrides
         class Base:
+            # Hand a back unchanged
             def run(self, a):
                 return a
 
 
+        # A tool that pairs its input with an optional extra
         class Child(Base):
+            # Pair a with b
             def run(self, a, b = None):
                 return a, b
 
 
+        # Everything in a UTF-8 text file
         def read(path):
             with open(path, encoding = "utf-8") as handle:
                 return handle.read()
+        """,
+    "pkg/serialization.py": """
+        import json
+
+
+        # Data as JSON text with sorted keys
+        def dumps(data):
+            return json.dumps(data, sort_keys = True)
+        """,
+    "pkg/cli.py": """
+        import sys
+
+
+        # Print the arguments and exit with success
+        def main(args):
+            print(args)
+            sys.exit(0)
         """,
     "pkg/big.py": "",
     "Tests/unit/meta/test_rex.py": META,
@@ -85,6 +117,13 @@ BROKEN_SETTINGS = """
     min_test_files = 100
     signature_packages = ["pkg"]
     library_targets = ["pkg"]
+    doc_style = "comment"
+    doc_max_lines = 1
+    wrappers = { "json.dumps" = "pkg.serialization.dumps" }
+    standards = [
+        "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
+        "no-narration", "commented-out-code", "long-functions",
+    ]
     """
 
 BROKEN_MOD_TESTS = """
@@ -181,6 +220,13 @@ BROKEN_MOD_TESTS = """
 BROKEN_FILES = {
     "pkg/__init__.py": "",
     "pkg/mod.py": """
+        import json
+        import os
+        import sys
+
+        HOME = os.environ["HOME"]
+
+
         class Base:
             def run(self, a):
                 return a
@@ -194,6 +240,38 @@ BROKEN_FILES = {
         def read(path):
             with open(path) as handle:
                 return handle.read()
+
+
+        # Read the file
+        def read_file(path):
+            \"\"\"Read it.
+
+            Args:
+                name: Gone.
+            \"\"\"
+            return path
+
+
+        # Save data as JSON,
+        # then stop
+        def save(data, seen=[]):
+            print(json.dumps(data))
+            sys.exit(1)
+            # x = run()
+            # Now fixed
+
+
+        # Look through nested data
+        def guard(data):
+            try:
+                pass
+            except:
+                pass
+            for a in data:
+                for b in a:
+                    for c in b:
+                        if c:
+                            pass
         """,
     "Tests/unit/meta/test_rex.py": META,
     "Tests/unit/pkg/test_mod.py": BROKEN_MOD_TESTS,
@@ -224,6 +302,12 @@ def every_rule():
     return {name for name, _ in inspect.getmembers(suite.TestRex, inspect.isfunction) if name.startswith("test_")}
 
 
+# The library rules a run reports on, from the ids of the parametrized check
+def library_rules_in(reports):
+    return {report.nodeid.split("[")[-1].rstrip("]") for report in reports
+            if "::test_the_library_holds_to_the_rule[" in report.nodeid}
+
+
 def run_the_suite(pytester):
     return pytester.inline_run(os.path.join("Tests", "unit", "meta"), "-p", "no:cacheprovider")
 
@@ -236,6 +320,7 @@ def test_a_clean_repository_passes_every_rule(pytester):
     assert [report.nodeid for report in failed] == []
     assert skipped == []
     assert rule_names(passed) == every_rule()
+    assert library_rules_in(passed) == set(LIBRARY_RULES)
 
 
 def test_a_broken_repository_fails_every_rule(pytester):
@@ -244,6 +329,7 @@ def test_a_broken_repository_fails_every_rule(pytester):
     _, _, failed = run_the_suite(pytester).listoutcomes()
 
     assert rule_names(failed) == every_rule()
+    assert library_rules_in(failed) == set(LIBRARY_RULES)
 
 
 def test_unconfigured_checks_skip(pytester):

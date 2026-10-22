@@ -14,10 +14,12 @@ from pytest_testrex.discovery import FUNCTION_DEFS, is_test_function
 # visible.
 ###########################################################
 
+# The names that occur more than once, sorted
 def duplicated(names):
     return sorted(name for name, count in collections.Counter(names).items() if count > 1)
 
 
+# Module level tests defined more than once
 def duplicate_tests(tree):
     return duplicated(node.name for node in tree.body if is_test_function(node))
 
@@ -30,10 +32,12 @@ def duplicate_test_methods(tree):
         if names}
 
 
+# Module level functions and classes defined more than once
 def duplicate_definitions(tree):
     return duplicated(node.name for node in tree.body if isinstance(node, FUNCTION_DEFS + (ast.ClassDef,)))
 
 
+# UPPER_CASE module constants assigned more than once
 def duplicate_constants(tree):
     return duplicated(
         target.id for node in tree.body if isinstance(node, ast.Assign)
@@ -54,6 +58,7 @@ def late_imports(tree):
     return late
 
 
+# The number of lines in a file
 def line_count(path):
     with open(path, "r", encoding = "utf-8") as handle:
         return sum(1 for _ in handle)

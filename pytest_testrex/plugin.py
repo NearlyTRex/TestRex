@@ -26,6 +26,7 @@ def pytest_addhooks(pluginmanager):
     pluginmanager.add_hookspecs(hookspecs)
 
 
+# The settings this run loaded, or None when the repository has no [tool.testrex]
 def get_settings(config):
     return config.stash.get(SETTINGS_KEY, None)
 
@@ -56,10 +57,12 @@ def pytest_unconfigure(config):
 # Required programs
 ###########################################################
 
+# The required programs not on PATH; "a|b" is missing only when neither is there
 def missing_binaries(names):
     return [name for name in names if not any(shutil.which(option) for option in name.split("|"))]
 
 
+# {marker: check} for requires_binary and every marker a conftest hook adds
 def requirement_checkers(config):
     checkers = {"requires_binary": missing_binaries}
     for result in config.hook.pytest_testrex_requirement_checkers(config = config):
@@ -93,12 +96,14 @@ def pytest_collection_modifyitems(config, items):
 # are unaffected; this only closes the in-process path.
 ###########################################################
 
+# Stands in for every socket connect while the network is closed
 def refuse_connection(*args, **kwargs):
     raise RuntimeError(
         "outbound network access is not available to tests; "
         "mark the test with @pytest.mark.allow_network if it truly needs it")
 
 
+# Closes outbound connections for each test unless it is marked allow_network
 @pytest.fixture(autouse = True)
 def no_outbound_network(request):
     loaded = get_settings(request.config)
@@ -113,6 +118,7 @@ def no_outbound_network(request):
 # The meta suite
 ###########################################################
 
+# The files the meta suite reads, found once per run
 def get_survey(config):
     if SURVEY_KEY not in config.stash:
         loaded = get_settings(config)
@@ -130,6 +136,7 @@ def pytest_generate_tests(metafunc):
             metafunc.parametrize(argument, values, ids = ids)
 
 
+# The survey, for the meta suite's checks
 @pytest.fixture(scope = "session")
 def testrex_survey(request):
     return get_survey(request.config)

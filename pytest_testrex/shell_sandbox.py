@@ -122,10 +122,12 @@ def check_namespace_support():
 
 
 def quote(value):
+    """A value quoted for a bash command line."""
     return shlex.quote(str(value))
 
 
 class ShellSandbox:
+    """A disposable root, stubs and tools for one test, and the means to run scripts in it."""
 
     def __init__(self, work_dir, repo_root, trace_dir=None, hook_file=None, stubs=None, extra_stubs=(),
                  allowed_tools=None, extra_tools=(), hidden_dirs=None, accounts=None, group=None,
@@ -152,6 +154,7 @@ class ShellSandbox:
     ###########################################################
 
     def build_root(self, accounts, group):
+        """Create the hidden directories, a writable /tmp and the account files."""
         for directory in self.hidden_dirs:
             os.makedirs(self.host_path(directory), exist_ok=True)
         for directory in ["/var/lib", "/var/log", "/var/tmp", "/var/www", "/usr/local/bin", "/etc/systemd/system"]:
@@ -177,6 +180,7 @@ class ShellSandbox:
             os.symlink("/proc/self/mounts", os.path.join(etc_dir, "mtab"))
 
     def build_tools(self):
+        """Link the allowed tools that exist on this machine and write the stubs."""
         os.makedirs(self.stub_dir)
         os.makedirs(self.tool_dir)
         for name in self.allowed_tools:
@@ -193,6 +197,7 @@ class ShellSandbox:
         return os.path.join(self.root_dir, path.lstrip("/"))
 
     def write(self, path, contents, mode=None):
+        """Write a file at a path inside the sandbox, and return where it is on the host."""
         target = self.host_path(path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w", encoding="utf-8") as handle:
@@ -202,13 +207,16 @@ class ShellSandbox:
         return target
 
     def read(self, path):
+        """The text of a file at a path inside the sandbox."""
         with open(self.host_path(path), encoding="utf-8") as handle:
             return handle.read()
 
     def exists(self, path):
+        """Whether a path exists inside the sandbox, a dangling symlink included."""
         return os.path.lexists(self.host_path(path))
 
     def add_user(self, name, uid=1000, groups=()):
+        """Add an account with its own group and home, and add it to the named groups."""
         with open(self.host_path("/etc/passwd"), "a", encoding="utf-8") as accounts:
             accounts.write(f"{name}:x:{uid}:{uid}::/home/{name}:/bin/bash\n")
         with open(self.host_path("/etc/group"), "a", encoding="utf-8") as group:
@@ -242,6 +250,7 @@ class ShellSandbox:
     ###########################################################
 
     def build_launcher(self, command, env):
+        """The script that hides the directories, mounts the sandbox's own and runs command with env."""
         keep = [self.work_dir, self.repo_root]
         if self.trace_dir:
             keep += [self.trace_dir, os.path.dirname(self.hook_file)]
@@ -334,6 +343,7 @@ def shell_sandbox_options():
 
 @pytest.fixture
 def shell_sandbox(request, tmp_path, shell_sandbox_options):
+    """A ShellSandbox for this test, traced for shell coverage when it is enabled."""
     trace_dir = os.environ.get(TRACE_DIR_VARIABLE) or None
     hook_file = os.environ.get(HOOK_VARIABLE) if trace_dir else None
     return ShellSandbox(
