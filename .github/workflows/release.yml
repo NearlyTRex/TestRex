@@ -26,6 +26,16 @@ jobs:
     uses: NearlyTRex/Workflows/.github/workflows/python-ci.yml@8d200aa1b1b0bf4bccd0f2fc17444ea21060457c # v0.2.18
     permissions:
       contents: read
+    # The same inputs as the python job in ci.yml
+    with:
+      # The shell sandbox's tests build real user namespaces, which Ubuntu
+      # runners restrict; skipped, they would leave the sandbox uncovered.
+      # Not the shell-sandbox input: that loads Workflows' own copy of the
+      # plugins, which would clash with the ones this package registers.
+      commands: |
+        if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
 
   build:
     name: Build

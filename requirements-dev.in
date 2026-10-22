@@ -2,5 +2,9 @@
 #   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-dev.txt requirements-dev.in
 pytest
 pylint
+# Shell coverage's parser, and shfmt to cross-check it against
+tree-sitter
+tree-sitter-bash
+shfmt-py
 # CI installs this package with --no-build-isolation, so its build backend comes from here
 setuptools

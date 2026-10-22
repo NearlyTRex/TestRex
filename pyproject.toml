@@ -14,10 +14,18 @@ dependencies = [
     "pytest>=8",
     "pylint>=3",
 ]
+
 classifiers = [
     "Framework :: Pytest",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Testing",
+]
+
+[project.optional-dependencies]
+# The parser shell coverage reads scripts with
+shell = [
+    "tree-sitter",
+    "tree-sitter-bash",
 ]
 
 [project.urls]
@@ -26,6 +34,8 @@ Issues = "https://github.com/NearlyTRex/TestRex/issues"
 
 [project.entry-points.pytest11]
 testrex = "pytest_testrex.plugin"
+testrex_shell_cov = "pytest_testrex.shell_cov"
+testrex_shell_sandbox = "pytest_testrex.shell_sandbox"
 
 [tool.setuptools]
 packages = ["pytest_testrex"]
@@ -47,8 +57,6 @@ source = ["pytest_testrex"]
 show_missing = true
 
 [tool.testrex]
-suites = ["unit"]
-integration_suites = []
 meta_dirs = ["unit/meta"]
 # The meta suite runs over sample trees written by the tests themselves
 min_test_files = 10
