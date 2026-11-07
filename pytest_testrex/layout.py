@@ -1,4 +1,5 @@
 # Imports
+import fnmatch
 import os
 
 # Local imports
@@ -35,18 +36,20 @@ def discover_split_packages(suite_dirs, ignored_dirs = ()):
                   for name in dirs if name.startswith("test_"))
 
 
-# Whether a directory has a .py file anywhere under it
-def holds_python(directory):
-    return any(name.endswith(".py") for _, _, files in os.walk(directory) for name in files)
+# Whether a directory has a .py file, or a file matching one of the script
+# test patterns, anywhere under it
+def holds_tests(directory, script_patterns = ()):
+    return any(name.endswith(".py") or any(fnmatch.fnmatch(name, pattern) for pattern in script_patterns)
+               for _, _, files in os.walk(directory) for name in files)
 
 
 # Every directory that must mirror the repository: neither a split package nor
-# inside one, and holding Python (a directory of fixture data mirrors nothing)
-def discover_mirror_directories(suite_dirs, ignored_dirs = ()):
+# inside one, and holding tests (a directory of fixture data mirrors nothing)
+def discover_mirror_directories(suite_dirs, ignored_dirs = (), script_patterns = ()):
     found = []
     for root, dirs in walk_directories(suite_dirs, ignored_dirs):
         dirs[:] = [name for name in dirs if not name.startswith("test_")]
-        found.extend(os.path.join(root, name) for name in dirs if holds_python(os.path.join(root, name)))
+        found.extend(os.path.join(root, name) for name in dirs if holds_tests(os.path.join(root, name), script_patterns))
     return sorted(found)
 
 
@@ -79,6 +82,28 @@ def source_candidates(package, suite_dir, repo_root, extensions):
     relative_parts = os.path.relpath(package, suite_dir).split(os.sep)
     base = os.path.join(repo_root, *relative_parts[:-1], relative_parts[-1][len("test_"):])
     return [base + extension for extension in extensions] + [base]
+
+
+# The name a standalone test file is a test of: the part a pattern's single *
+# matched, as greet for greet.test.js under *.test.js
+def script_stems(name, patterns):
+    stems = []
+    for pattern in patterns:
+        if pattern.count("*") == 1:
+            prefix, suffix = pattern.split("*")
+            if fnmatch.fnmatch(name, pattern) and len(name) > len(prefix) + len(suffix):
+                stems.append(name[len(prefix):len(name) - len(suffix)])
+    return stems
+
+
+# Where the code a standalone test file covers would live: the same path in
+# the repository, named by its stem, with one of the language's extensions or
+# as a directory
+def script_source_candidates(path, suite_dir, repo_root, patterns, extensions):
+    directory = os.path.join(repo_root, os.path.relpath(os.path.dirname(path), suite_dir))
+    stems = script_stems(os.path.basename(path), patterns)
+    return [os.path.normpath(os.path.join(directory, stem + extension)) for stem in stems for extension in extensions] + [
+        os.path.normpath(os.path.join(directory, stem)) for stem in stems]
 
 
 # The repository directories a test directory may mirror; a hidden one, such

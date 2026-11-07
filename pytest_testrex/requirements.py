@@ -105,14 +105,16 @@ def binaries_needed(requested, fixtures, fixture_programs):
     return needed
 
 
-# "test needs [programs]" for each test that uses a program fixture without declaring its programs
+# "test needs [programs]" for each test that uses a program fixture without declaring its
+# programs; a fixture's "a|b" is met by declaring either
 def undeclared_fixture_programs(tree, conftest_trees, fixture_programs):
     fixtures = fixture_parameters([tree] + list(conftest_trees))
     missing = []
     for name, function, declared in declared_per_test(tree):
         needed = binaries_needed(parameter_names(function), fixtures, fixture_programs)
-        if not needed <= accepted(declared):
-            missing.append("%s needs %s" % (name, sorted(needed - accepted(declared))))
+        unmet = [program for program in needed if not accepted([program]) & accepted(declared)]
+        if unmet:
+            missing.append("%s needs %s" % (name, sorted(unmet)))
     return missing
 
 

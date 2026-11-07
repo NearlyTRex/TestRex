@@ -1,6 +1,9 @@
 # Imports
 import os
 
+# Third-party imports
+import pytest
+
 # Local imports
 from pytest_testrex import layout
 
@@ -56,6 +59,33 @@ def test_mirror_discovery_skips_split_packages_and_data_directories(write_file, 
     found = relative_to(tmp_path, layout.discover_mirror_directories([str(tmp_path)]))
 
     assert found == ["Shared", os.path.join("Shared", "joybox"), os.path.join("Shared", "joybox", "stores"), "meta"]
+
+
+def test_directories_holding_only_script_tests_mirror_too(write_file, tmp_path):
+    write_file("lib/greet.test.js")
+    write_file("spec/greet_spec.lua")
+
+    assert layout.discover_mirror_directories([str(tmp_path)]) == []
+    assert relative_to(tmp_path, layout.discover_mirror_directories([str(tmp_path)], (), ["*.test.js"])) == ["lib"]
+
+
+@pytest.mark.parametrize("name, patterns, stems", [
+    ("greet.test.js", ["*.test.js", "*.test.mjs"], ["greet"]),
+    ("greet_spec.lua", ["*_spec.lua"], ["greet"]),
+    ("_spec.lua", ["*_spec.lua"], []),
+    ("greet.test.js", ["*.*.js", "greet.test.js"], []),
+])
+def test_a_script_test_is_a_test_of_what_its_pattern_star_matched(name, patterns, stems):
+    assert layout.script_stems(name, patterns) == stems
+
+
+def test_a_script_test_maps_to_a_source_or_a_directory_of_its_stem(tmp_path):
+    suite_dir = str(tmp_path / "Tests" / "integration")
+    path = os.path.join(suite_dir, "lib", "greet.test.js")
+    base = os.path.join(str(tmp_path), "lib", "greet")
+
+    assert layout.script_source_candidates(path, suite_dir, str(tmp_path), ["*.test.js"], (".js", ".mjs")) == [
+        base + ".js", base + ".mjs", base]
 
 
 def test_the_suite_a_path_is_in_is_found(tmp_path):

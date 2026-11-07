@@ -1,8 +1,11 @@
 # Imports
 import os
 
+# Third-party imports
+import pytest
+
 # Local imports
-from pytest_testrex import discovery
+from pytest_testrex import discovery, parsers
 
 
 def test_python_files_are_found_under_every_suite_but_not_in_caches_or_data(write_file, tmp_path):
@@ -92,3 +95,97 @@ def test_helpers_that_import_each_other_do_not_loop(write_file, tmp_path):
     names = discovery.checker_names(str(tmp_path / "Tests" / "a_helpers.py"), str(tmp_path / "Tests"))
 
     assert names == {"check_a", "check_b"}
+
+###########################################################
+# Standalone JavaScript and Lua tests
+###########################################################
+
+JAVASCRIPT = discovery.SCRIPT_LANGUAGES["javascript"]
+LUA = discovery.SCRIPT_LANGUAGES["lua"]
+PATTERNS = {"javascript": ("*.test.js", "*.test.mjs"), "lua": ("*_spec.lua",)}
+
+JS_TESTS = """
+const assert = require("node:assert");
+function check(v) { assert.ok(v); }
+const viaCheck = (v) => { check(v); };
+let declared;
+const plain = 1;
+describe("group", () => {
+  it("works", () => { viaCheck(1); });
+  test("sub", async (t) => { await t.test("inner", () => { t.assert.ok(1); }); });
+  test.skip(() => { run(); });
+  test.todo("later");
+});
+"""
+
+LUA_TESTS = """
+local function check(v) assert.is_true(v) end
+local via_check = function(v) check(v) end
+local a, b = function() end, 2
+local plain = 3
+function M:method() return 1 end
+describe("group", function()
+  it("works", function() via_check(1) end)
+  spec([[long]], function() M:method() end)
+  pending("later")
+end)
+"""
+
+
+def test_a_file_name_picks_its_language_from_the_patterns():
+    assert discovery.script_language("greet.test.mjs", PATTERNS) == "javascript"
+    assert discovery.script_language("greet_spec.lua", PATTERNS) == "lua"
+    assert discovery.script_language("greet.test.cjs", PATTERNS) is None
+
+
+def test_script_tests_are_found_under_the_suites_but_not_in_modules_or_data(write_file, tmp_path):
+    for path in ("unit/a.test.js", "unit/node_modules/b.test.js", "unit/data/c_spec.lua",
+                 "integration/sub/d_spec.lua", "unit/e.js"):
+        write_file(path)
+    suites = [str(tmp_path / "unit"), str(tmp_path / "integration")]
+
+    found = discovery.discover_script_tests(suites, PATTERNS, [str(tmp_path / "unit" / "data")])
+
+    assert [os.path.relpath(path, tmp_path) for path in found] == [
+        os.path.join("integration", "sub", "d_spec.lua"), os.path.join("unit", "a.test.js")]
+
+
+def test_a_script_is_parsed_once_with_its_grammar(write_file):
+    path = str(write_file("a.test.js", "test('a', () => {});\n"))
+
+    tree = discovery.parsed_script(path, "javascript")
+
+    assert tree.type == "program"
+    assert discovery.parsed_script(path, "javascript") is tree
+
+
+def test_javascript_tests_are_every_test_and_it_call_with_their_callbacks():
+    tests = discovery.script_tests(parsers.parse("javascript", JS_TESTS), JAVASCRIPT)
+
+    assert [label for label, _ in tests] == [
+        '"works" (line 8)', '"sub" (line 9)', '"inner" (line 9)', "<unnamed> (line 10)", '"later" (line 11)']
+    assert [callback is None for _, callback in tests] == [False, False, False, False, True]
+
+
+def test_javascript_checkers_are_functions_that_assert_directly_or_through_one_another():
+    assert discovery.script_checkers(parsers.parse("javascript", JS_TESTS), JAVASCRIPT) == {"check", "viaCheck"}
+
+
+def test_lua_tests_are_every_it_test_and_spec_call():
+    tree = parsers.parse("lua", LUA_TESTS)
+
+    assert [label for label, _ in discovery.script_tests(tree, LUA)] == ['"works" (line 8)', "[[long]] (line 9)"]
+    assert discovery.script_checkers(tree, LUA) == {"check", "via_check"}
+
+
+def test_lua_methods_are_named_with_a_dot():
+    tree = parsers.parse("lua", LUA_TESTS)
+
+    assert ("M.method", "function_declaration") in [(name, node.type) for name, node in discovery.script_functions(tree, LUA)]
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("assert", True), ("assert.strictEqual", True), ("t.assert.ok", True), ("self.assertEqual", True),
+    ("expect", True), ("expected.value", False), ("greet", False)])
+def test_assertions_are_named_assert_or_expect(name, expected):
+    assert discovery.is_assertion_name(name) is expected

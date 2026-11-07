@@ -5,7 +5,8 @@ import ast
 import pytest
 
 # Local imports
-from pytest_testrex import quality
+from pytest_testrex import parsers, quality
+from pytest_testrex.discovery import SCRIPT_LANGUAGES
 from pytest_testrex.discovery import collected_tests, local_checkers
 
 
@@ -170,3 +171,28 @@ def test_the_same_function_over_a_different_constant_is_not_a_copy(parse_sample)
     other = quality.module_helpers(parse_sample("KINDS = {'b': 2}\ndef kind(r):\n    return KINDS[r]\n"))
 
     assert one != other
+
+
+def test_javascript_tests_whose_callback_asserts_nothing_are_found():
+    tree = parsers.parse("javascript", """
+        const assert = require("node:assert");
+        const check = (v) => assert.ok(v);
+        test("asserts", () => { assert.strictEqual(1, 1); });
+        test("through a helper", () => { check(1); });
+        it("expects", () => { expect(1).toBe(1); });
+        test("only calls", () => { run(); });
+        test.todo("later");
+        """)
+
+    assert quality.unchecked_script_tests(tree, SCRIPT_LANGUAGES["javascript"]) == ['"only calls" (line 7)']
+
+
+def test_lua_tests_whose_body_asserts_nothing_are_found():
+    tree = parsers.parse("lua", """
+        describe("greet", function()
+          it("asserts", function() assert.are.same(1, 1) end)
+          it("only calls", function() run() end)
+        end)
+        """)
+
+    assert quality.unchecked_script_tests(tree, SCRIPT_LANGUAGES["lua"]) == ['"only calls" (line 4)']

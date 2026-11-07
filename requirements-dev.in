@@ -5,6 +5,10 @@ pylint
 # Shell coverage's parser, and shfmt to cross-check it against
 tree-sitter
 tree-sitter-bash
+# JavaScript and Lua: their parsers, and Lua run inside tests
+tree-sitter-javascript
+tree-sitter-lua
+lupa
 shfmt-py
 # CI installs this package with --no-build-isolation, so its build backend comes from here
 setuptools

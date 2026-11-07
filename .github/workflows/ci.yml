@@ -24,10 +24,13 @@ jobs:
       # runners restrict; skipped, they would leave the sandbox uncovered.
       # Not the shell-sandbox input: that loads Workflows' own copy of the
       # plugins, which would clash with the ones this package registers.
+      # The Lua tests run every interpreter installed, and busted and luacheck
       commands: |
         if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
         fi
+        sudo apt-get update -q
+        sudo apt-get install -y -q lua5.1 lua5.4 luajit lua-busted lua-check
 
   lint:
     name: Lint

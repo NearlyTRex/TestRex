@@ -28,7 +28,6 @@ takes it from the `shell_traced_env` fixture instead. Only bash is traced:
 `sh` (dash) does not read BASH_ENV.
 """
 
-import fnmatch
 import functools
 import os
 import re
@@ -37,8 +36,10 @@ import tempfile
 
 import pytest
 
+from pytest_testrex import statement_coverage
+from pytest_testrex.statement_coverage import describe_statement, is_excluded, is_worker, meets_floor
+
 SCRIPT_EXTENSIONS = (".bash", ".sh")
-SKIPPED_DIRS = {".git", ".hg", ".venv", "venv", "node_modules", "__pycache__"}
 
 # Names of the environment variables the hook and the tests share
 TRACE_DIR_VARIABLE = "SHELL_COV_TRACE_DIR"
@@ -62,10 +63,6 @@ fi
 
 TRACE_LINE = re.compile(
     r"^\++\x01(?P<cwd>[^\x01\n]*)\x01(?P<path>[^\x01\n]+)\x01(?P<line>\d+)\x01(?P<command>[^\n]*)")
-
-# A shell script bigger than this is not one a person wrote; refuse rather than
-# scan it. Traces are read a line at a time, so they need no bound.
-MAX_SCRIPT_BYTES = 4 * 1024 * 1024
 
 ###########################################################
 # Statements and branches
@@ -91,7 +88,7 @@ SUBSTITUTIONS = {"command_substitution", "process_substitution"}
 BRANCH_TEXT_WIDTH = 72
 
 
-class ShellParseError(Exception):
+class ShellParseError(statement_coverage.SourceError):
     """A script that can't be measured: unreadable, too big or not parsable."""
 
 
@@ -381,46 +378,18 @@ def read_traces(trace_dir, words=False):
 
 def read_script(path):
     """The text of a script, refusing one too big to be a script a person wrote."""
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        source = handle.read(MAX_SCRIPT_BYTES + 1)
-    if len(source) > MAX_SCRIPT_BYTES:
-        raise ShellParseError(f"larger than {MAX_SCRIPT_BYTES} bytes; not a shell script to measure")
-    return source
+    return statement_coverage.read_source(path, ShellParseError)
 
 
 def find_scripts(sources):
     """Scripts named by sources: files as given, directories searched."""
-    scripts = set()
-    for source in sources:
-        if os.path.isfile(source):
-            scripts.add(source)
-            continue
-        for root, dirs, files in os.walk(source):
-            dirs[:] = [name for name in dirs if name not in SKIPPED_DIRS]
-            scripts.update(os.path.join(root, name) for name in files if name.endswith(SCRIPT_EXTENSIONS))
-    return sorted(scripts)
-
-
-def is_excluded(name, patterns):
-    """Whether a script's path (relative to the rootdir) matches any --shell-cov-exclude glob.
-    A * matches across directories, so `vendor/*` excludes everything under vendor/."""
-    name = name.replace(os.sep, "/")
-    return any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
+    return statement_coverage.find_sources(sources, SCRIPT_EXTENSIONS)
 
 
 def is_statement_run(statement, lines_run):
     """Whether any traced line falls inside a statement's (first, last) lines."""
     first, last = statement
     return any(first <= line <= last for line in lines_run)
-
-
-def describe_statement(lines, statement, width=72):
-    """A statement's first line, squeezed to one line, for the report."""
-    first, last = statement
-    text = " ".join(lines[first - 1].split())
-    if len(text) > width:
-        text = text[:width - 3] + "..."
-    return text + " ..." if last > first and not text.endswith("...") else text
 
 
 def measure_script(source, lines_run, commands=None):
@@ -464,68 +433,10 @@ def measure(root, sources, trace_dir, branch=False, exclude=()):
     return results
 
 
-def get_percent(result):
-    """The percent of a script's statements that ran; 100 when it has none."""
-    if result["statements"] == 0:
-        return 100.0
-    return 100.0 * result["covered"] / result["statements"]
-
-
-def get_total_percent(results):
-    """The percent of every script's statements that ran; 100 when there are none."""
-    statements = sum(result["statements"] for result in results.values())
-    if statements == 0:
-        return 100.0
-    return 100.0 * sum(result["covered"] for result in results.values()) / statements
-
-
-def meets_floor(results, floor):
-    """Whether the total reaches the floor; always, with no floor."""
-    return floor is None or get_total_percent(results) >= floor
-
-
-def format_missed(missed, limit=8):
-    """Missed (first, last) spans as "3, 5-7", cut to limit spans."""
-    spans = [f"{first}" if first == last else f"{first}-{last}" for first, last in missed]
-    if len(spans) > limit:
-        spans = spans[:limit] + ["..."]
-    return ", ".join(spans)
-
-
-# Most missed statements listed per script, so one badly covered script can't flood the log
-MISSED_LISTED = 20
-
-
-def render_missed(ordered):
-    """The statements no test ran, with their source, scripts least covered first."""
-    lines = []
-    for name, result in ordered:
-        missed = list(zip(result["missed"], result["missed_source"]))
-        for (first, _), text in missed[:MISSED_LISTED]:
-            lines.append(f"  {name}:{first}  {text}")
-        if len(missed) > MISSED_LISTED:
-            lines.append(f"  {name}: ... and {len(missed) - MISSED_LISTED} more")
-    return lines
-
-
 def render_report(results, floor=None, branch=False):
     """The report, scripts least covered first."""
-    width = max([len(name) for name in results] + [len("Script")])
-    lines = ["Shell coverage" + (" (branches: the right side of each && / || counts as a statement)" if branch else ""), ""]
-    lines.append(f"{'Script':<{width}}  {'Stmts':>5}  {'Miss':>5}  {'Cover':>6}  Missing")
-    ordered = sorted(results.items(), key=lambda item: (get_percent(item[1]), item[0]))
-    for name, result in ordered:
-        lines.append(f"{name:<{width}}  {result['statements']:>5}  {len(result['missed']):>5}  "
-                     f"{get_percent(result):>5.1f}%  {format_missed(result['missed'])}")
-    missed = render_missed(ordered)
-    if missed:
-        lines += ["", "Missed statements"] + missed
-    total = get_total_percent(results)
-    lines.append("")
-    lines.append(f"Total: {total:.1f}%")
-    if floor is not None:
-        lines.append(f"Floor: {floor:.1f}% ({'met' if total >= floor else 'NOT MET'})")
-    return "\n".join(lines)
+    title = "Shell coverage" + (" (branches: the right side of each && / || counts as a statement)" if branch else "")
+    return statement_coverage.render_report(results, floor, title=title, label="Script")
 
 ###########################################################
 # Plugin
@@ -552,13 +463,6 @@ def is_enabled(config):
     """Whether any --shell-cov option asks for shell coverage."""
     return bool(config.getoption("--shell-cov-source") or config.getoption("--shell-cov-report")
                 or config.getoption("--shell-cov-fail-under") is not None)
-
-
-def is_worker(config):
-    """Whether this is a pytest-xdist worker rather than the controller."""
-    # pytest-xdist workers inherit the controller's environment, trace
-    # directory included; only the controller measures
-    return hasattr(config, "workerinput")
 
 
 def get_sources(config):

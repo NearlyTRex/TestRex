@@ -1,5 +1,6 @@
 # Local imports
-from pytest_testrex import hygiene
+from pytest_testrex import hygiene, parsers
+from pytest_testrex.discovery import SCRIPT_LANGUAGES
 
 
 def test_duplicates_are_found_in_any_iterable():
@@ -40,3 +41,12 @@ def test_late_imports_are_reported_but_a_docstring_and_the_header_are_not(parse_
 
 def test_lines_are_counted(write_file):
     assert hygiene.line_count(str(write_file("a.py", "one\ntwo\nthree"))) == 3
+
+
+def test_a_script_test_file_holds_tests_when_it_calls_test_or_it():
+    javascript, lua = SCRIPT_LANGUAGES["javascript"], SCRIPT_LANGUAGES["lua"]
+
+    assert hygiene.holds_script_tests(parsers.parse("javascript", "test.todo('later');\n"), javascript)
+    assert not hygiene.holds_script_tests(parsers.parse("javascript", "describe('only a group', () => {});\n"), javascript)
+    assert hygiene.holds_script_tests(parsers.parse("lua", "it('runs', function() end)\n"), lua)
+    assert not hygiene.holds_script_tests(parsers.parse("lua", "local x = 1\n"), lua)

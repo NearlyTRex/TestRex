@@ -1,13 +1,15 @@
 # Imports
 import inspect
 import os
+import subprocess
 import textwrap
 
 # Third-party imports
 import pytest
 
 # Local imports
-from pytest_testrex import suite
+from pytest_testrex import lint, suite
+from pytest_testrex.parsers import ParserMissing
 from pytest_testrex.settings import LIBRARY_RULES
 
 ###########################################################
@@ -16,6 +18,8 @@ from pytest_testrex.settings import LIBRARY_RULES
 # A sample repository is written with pytester and the suite run over it the
 # way a repository runs it. A clean one passes every rule; a broken one fails
 # every rule at least once, so no rule is wired up in a way that cannot fail.
+# eslint and luacheck are faked here, failing a file that holds UNUSED; the
+# integration suite runs them for real.
 ###########################################################
 
 META = "from pytest_testrex import suite\n\n\nclass TestRex(suite.TestRex):\n    pass\n"
@@ -31,6 +35,8 @@ CLEAN_SETTINGS = """
     wrappers = { "json.dumps" = "pkg.serialization.dumps" }
     wrapper_modules = ["pkg/serialization.py"]
     command_paths = ["pkg/cli.py"]
+    js_sources = ["lib"]
+    lua_sources = ["lib/greet.lua"]
     standards = [
         "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
         "no-narration", "commented-out-code", "long-functions", "long-modules",
@@ -77,6 +83,26 @@ CLEAN_FILES = {
             sys.exit(0)
         """,
     "pkg/big.py": "",
+    "lib/greet.js": "exports.greet = (name) => `hello ${name}`;\n",
+    "lib/greet.lua": "return { greet = function(name) return 'hello ' .. name end }\n",
+    "Tests/integration/lib/greet.test.js": """
+        const test = require("node:test");
+        const assert = require("node:assert");
+        const { greet } = require("../../../lib/greet.js");
+
+        test("greets", () => {
+            assert.strictEqual(greet("you"), "hello you");
+        });
+        """,
+    "Tests/integration/lib/greet_spec.lua": """
+        local greet = require("lib.greet").greet
+
+        describe("greet", function()
+            it("greets", function()
+                assert.are.equal("hello you", greet("you"))
+            end)
+        end)
+        """,
     "Tests/unit/meta/test_rex.py": META,
     "Tests/unit/pkg/test_mod.py": """
         import pytest
@@ -283,7 +309,28 @@ BROKEN_FILES = {
     "Tests/unit/nowhere/test_lost.py": "def test_lost():\n    assert len('a') == 1\n",
     "Tests/integration/pkg/test_mod.py": "def test_in_process():\n    assert len('a') == 1\n",
     "Tests/empty/README.md": "",
+    "Tests/unit/web/empty.test.js": "const UNUSED = 1;\n",
+    "Tests/unit/web/greet.test.js": "test('only calls', () => { greet(); });\n",
+    "Tests/unit/web/greet_spec.lua": "local UNUSED = 1\nit('only calls', function() greet() end)\n",
 }
+
+
+# Stands in for an eslint or luacheck run: fails when a file holds UNUSED
+def fake_lint(files):
+    dirty = []
+    for path in files:
+        with open(path, encoding = "utf-8") as handle:
+            if "UNUSED" in handle.read():
+                dirty.append(path)
+    return subprocess.CompletedProcess(["lint"], 1 if dirty else 0, "\n".join(dirty), "")
+
+
+# eslint and luacheck installed and faked, for a run in this process
+@pytest.fixture
+def linters(monkeypatch):
+    monkeypatch.setattr(lint, "installed", lambda program: True)
+    monkeypatch.setattr(lint, "run_eslint", lambda repo_root, configured, files: fake_lint(files))
+    monkeypatch.setattr(lint, "run_luacheck", lambda repo_root, configured, tests, sources: [fake_lint(tests), fake_lint(sources)])
 
 
 def write_repository(pytester, settings, files):
@@ -313,6 +360,7 @@ def run_the_suite(pytester):
     return pytester.inline_run(os.path.join("Tests", "unit", "meta"), "-p", "no:cacheprovider")
 
 
+@pytest.mark.usefixtures("linters")
 def test_a_clean_repository_passes_every_rule(pytester):
     write_repository(pytester, CLEAN_SETTINGS, CLEAN_FILES)
 
@@ -324,6 +372,7 @@ def test_a_clean_repository_passes_every_rule(pytester):
     assert library_rules_in(passed) == set(LIBRARY_RULES)
 
 
+@pytest.mark.usefixtures("linters")
 def test_a_broken_repository_fails_every_rule(pytester):
     write_repository(pytester, BROKEN_SETTINGS, BROKEN_FILES)
 
@@ -344,6 +393,34 @@ def test_unconfigured_checks_skip(pytester):
     assert "Skipped: no library_targets in [tool.testrex]" in reasons
 
 
-@pytest.mark.parametrize("argument", ["test_file", "python_file", "integration_file", "split_package", "mirror_directory"])
+def test_script_rules_skip_without_their_linters(pytester, monkeypatch):
+    write_repository(pytester, CLEAN_SETTINGS, CLEAN_FILES)
+    monkeypatch.setattr(lint, "installed", lambda program: False)
+
+    _, skipped, _ = run_the_suite(pytester).listoutcomes()
+    reasons = {report.longrepr[2] for report in skipped}
+
+    assert reasons == {"Skipped: eslint not installed", "Skipped: luacheck not installed"}
+
+
+@pytest.mark.usefixtures("linters")
+def test_script_rules_skip_without_the_grammar(pytester, monkeypatch):
+    write_repository(pytester, CLEAN_SETTINGS, CLEAN_FILES)
+
+    def missing(path, language):
+        raise ParserMissing(f"reading {language} needs its grammar")
+    monkeypatch.setattr(suite, "parsed_script", missing)
+
+    _, skipped, _ = run_the_suite(pytester).listoutcomes()
+
+    assert {report.nodeid.split("::")[-1] for report in skipped} == {
+        f"{rule}[{os.path.join('integration', 'lib', name)}]" for name in ("greet.test.js", "greet_spec.lua")
+        for rule in ("test_every_script_test_file_holds_at_least_one_test", "test_every_script_test_checks_something")}
+    assert {report.longrepr[2] for report in skipped} == {
+        "Skipped: reading javascript needs its grammar", "Skipped: reading lua needs its grammar"}
+
+
+@pytest.mark.parametrize("argument", [
+    "test_file", "python_file", "integration_file", "split_package", "mirror_directory", "script_test_file"])
 def test_every_parametrized_argument_is_used_by_a_rule(argument):
     assert any(argument in inspect.signature(member).parameters for _, member in inspect.getmembers(suite.TestRex, inspect.isfunction))

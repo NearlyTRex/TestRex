@@ -1,0 +1,16 @@
+{
+  "root": true,
+  "extends": "eslint:recommended",
+  "env": {"node": true, "es2020": true},
+  "globals": {
+    "globalThis": "readonly", "AggregateError": "readonly", "FinalizationRegistry": "readonly", "WeakRef": "readonly",
+    "AbortController": "readonly", "AbortSignal": "readonly", "Blob": "readonly", "BroadcastChannel": "readonly",
+    "Event": "readonly", "EventTarget": "readonly", "FormData": "readonly", "Headers": "readonly",
+    "MessageChannel": "readonly", "MessagePort": "readonly", "Request": "readonly", "Response": "readonly",
+    "TextDecoder": "readonly", "TextEncoder": "readonly", "URL": "readonly", "URLSearchParams": "readonly",
+    "atob": "readonly", "btoa": "readonly", "crypto": "readonly", "fetch": "readonly", "performance": "readonly",
+    "queueMicrotask": "readonly", "structuredClone": "readonly"
+  },
+  "parserOptions": {"ecmaVersion": 2020, "sourceType": "module"},
+  "overrides": [{"files": ["*.cjs"], "parserOptions": {"sourceType": "script"}}]
+}

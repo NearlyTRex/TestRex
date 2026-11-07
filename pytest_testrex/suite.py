@@ -8,8 +8,11 @@ import pytest
 # Local imports
 from pytest_testrex import hygiene, layout, library, lint, quality, requirements, signatures, standards
 from pytest_testrex.discovery import (
-    checker_names, defines_tests, discover_python_files, parsed)
+    SCRIPT_LANGUAGES, checker_names, defines_tests, discover_python_files, discover_script_tests, parsed,
+    parsed_script, script_language)
+from pytest_testrex.parsers import ParserMissing
 from pytest_testrex.settings import LIBRARY_RULES
+from pytest_testrex.statement_coverage import find_sources
 
 ###########################################################
 # The meta suite
@@ -36,6 +39,7 @@ class Survey:
     split_packages: list
     mirror_directories: list
     library_files: list
+    script_test_files: list
 
     # A path relative to the tests directory, as it appears in test ids
     def relative(self, path):
@@ -47,24 +51,51 @@ class Survey:
         for argument, values in [
                 ("test_file", self.test_files), ("python_file", self.all_files),
                 ("integration_file", self.integration_files), ("split_package", self.split_packages),
-                ("mirror_directory", self.mirror_directories)]:
+                ("mirror_directory", self.mirror_directories), ("script_test_file", self.script_test_files)]:
             found[argument] = (values, [self.relative(path) for path in values])
         found["library_rule"] = (list(LIBRARY_RULES), list(LIBRARY_RULES))
         return found
+
+    # Every test file, Python or standalone
+    @property
+    def every_test_file(self):
+        return self.test_files + self.script_test_files
+
+    # The language of a standalone test file
+    def language_of(self, path):
+        return script_language(os.path.basename(path), self.settings.script_test_patterns)
+
+    # (test files, sources) a language's linter reads
+    def lint_files(self, language):
+        sources = {"javascript": self.settings.js_sources, "lua": self.settings.lua_sources}[language]
+        tests = [path for path in self.script_test_files if self.language_of(path) == language]
+        return tests, find_sources(sources, SCRIPT_LANGUAGES[language].extensions)
+
+    # (syntax, tree) of a standalone test file, skipping the test when its
+    # language's grammar is not installed
+    def read_script(self, path):
+        language = self.language_of(path)
+        try:
+            return SCRIPT_LANGUAGES[language], parsed_script(path, language)
+        except ParserMissing as error:
+            pytest.skip(str(error))
 
 
 # Find every file and directory the rules are parametrized over
 def survey(settings):
     ignored = settings.ignored_dirs
     test_files = discover_python_files(settings.suite_dirs, True, ignored)
+    script_patterns = settings.script_test_patterns
     return Survey(
         settings = settings,
         test_files = test_files,
         all_files = discover_python_files(settings.suite_dirs, False, ignored),
         integration_files = discover_python_files(settings.integration_dirs, True, ignored),
         split_packages = layout.discover_split_packages(settings.suite_dirs, ignored),
-        mirror_directories = layout.discover_mirror_directories(settings.suite_dirs, ignored),
-        library_files = library.discover_library_files(settings.library_targets))
+        mirror_directories = layout.discover_mirror_directories(
+            settings.suite_dirs, ignored, [pattern for patterns in script_patterns.values() for pattern in patterns]),
+        library_files = library.discover_library_files(settings.library_targets),
+        script_test_files = discover_script_tests(settings.suite_dirs, script_patterns, ignored))
 
 
 class TestRex:
@@ -79,14 +110,14 @@ class TestRex:
     def test_test_files_were_discovered(self, testrex_survey):
         minimum = testrex_survey.settings.min_test_files
 
-        assert len(testrex_survey.test_files) >= minimum, (
+        assert len(testrex_survey.every_test_file) >= minimum, (
             "found %d test files under %s, fewer than min_test_files (%d)" % (
-                len(testrex_survey.test_files), testrex_survey.settings.tests_dir, minimum))
+                len(testrex_survey.every_test_file), testrex_survey.settings.tests_dir, minimum))
 
     def test_every_suite_was_discovered(self, testrex_survey):
         empty = [
             testrex_survey.relative(suite) for suite in testrex_survey.settings.suite_dirs
-            if not any(path.startswith(suite + os.sep) for path in testrex_survey.test_files)]
+            if not any(path.startswith(suite + os.sep) for path in testrex_survey.every_test_file)]
 
         assert not empty, f"no tests found under {empty}"
 
@@ -135,6 +166,11 @@ class TestRex:
     def test_every_test_file_holds_at_least_one_test(self, test_file):
         assert defines_tests(parsed(test_file)), "no tests in a file named like one"
 
+    def test_every_script_test_file_holds_at_least_one_test(self, script_test_file, testrex_survey):
+        syntax, tree = testrex_survey.read_script(script_test_file)
+
+        assert hygiene.holds_script_tests(tree, syntax), "no test(...) or it(...) in a file named like a test file"
+
     ###########################################################
     # Test quality
     ###########################################################
@@ -151,6 +187,13 @@ class TestRex:
         # A test that only calls the code passes unless the code raises,
         # whatever it returns or does.
         unchecked = quality.unchecked_tests(parsed(test_file), checker_names(test_file, testrex_survey.settings.tests_dir))
+
+        assert not unchecked, f"asserts nothing: {unchecked}"
+
+    def test_every_script_test_checks_something(self, script_test_file, testrex_survey):
+        # The runner passes a test whose callback only calls the code.
+        syntax, tree = testrex_survey.read_script(script_test_file)
+        unchecked = quality.unchecked_script_tests(tree, syntax)
 
         assert not unchecked, f"asserts nothing: {unchecked}"
 
@@ -225,6 +268,17 @@ class TestRex:
             f"'{testrex_survey.relative(mirror_directory)}' mirrors nothing in the repository; "
             f"if it is a split of test_{name}.py, name it test_{name}/")
 
+    def test_a_script_test_mirrors_a_source(self, script_test_file, testrex_survey):
+        settings = testrex_survey.settings
+        language = testrex_survey.language_of(script_test_file)
+        candidates = layout.script_source_candidates(
+            script_test_file, layout.suite_of(script_test_file, settings.suite_dirs), settings.repo_root,
+            settings.script_test_patterns[language], SCRIPT_LANGUAGES[language].extensions)
+
+        assert any(os.path.exists(path) for path in candidates), (
+            "no source to mirror; expected one of " + ", ".join(os.path.relpath(path, settings.repo_root) for path in candidates)
+            if candidates else "its name matches no test pattern with a single *, so it mirrors nothing")
+
     ###########################################################
     # Required programs
     ###########################################################
@@ -265,6 +319,15 @@ class TestRex:
 
         assert requirements.declares_a_program(parsed(integration_file), markers), (
             "declares no program; mark what it runs, or move it to a unit suite if it runs none")
+
+    def test_a_script_test_lives_in_an_integration_suite(self, script_test_file, testrex_survey):
+        # Its runner is a program outside the process, so it is an integration test.
+        settings = testrex_survey.settings
+        runner = SCRIPT_LANGUAGES[testrex_survey.language_of(script_test_file)].runner[0]
+
+        assert any(script_test_file.startswith(suite + os.sep) for suite in settings.integration_dirs), (
+            f"runs under {runner}, a program outside the process; move it to an integration suite: "
+            f"{list(settings.integration_suites)}")
 
     ###########################################################
     # Override signatures
@@ -318,3 +381,30 @@ class TestRex:
 
         assert result.returncode == 0, result.stdout + result.stderr
 
+    ###########################################################
+    # eslint and luacheck
+    ###########################################################
+
+    def test_eslint_is_clean(self, testrex_survey):
+        settings = testrex_survey.settings
+        tests, sources = testrex_survey.lint_files("javascript")
+        if not tests + sources:
+            pytest.skip("no JavaScript test files or js_sources")
+        if not lint.installed("eslint"):
+            pytest.skip("eslint not installed")
+        result = lint.run_eslint(settings.repo_root, settings.eslint_config, tests + sources)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_luacheck_is_clean(self, testrex_survey):
+        settings = testrex_survey.settings
+        tests, sources = testrex_survey.lint_files("lua")
+        if not tests + sources:
+            pytest.skip("no Lua test files or lua_sources")
+        if not lint.installed("luacheck"):
+            pytest.skip("luacheck not installed")
+        failures = [
+            result.stdout + result.stderr
+            for result in lint.run_luacheck(settings.repo_root, settings.luacheck_config, tests, sources) if result.returncode]
+
+        assert not failures, "\n".join(failures)

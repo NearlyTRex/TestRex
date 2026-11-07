@@ -4,7 +4,7 @@ import collections
 import hashlib
 
 # Local imports
-from pytest_testrex.discovery import FUNCTION_DEFS, checks_in, collected_tests
+from pytest_testrex.discovery import FUNCTION_DEFS, checks_in, collected_tests, makes_check, script_checkers, script_tests
 
 ###########################################################
 # Test quality
@@ -136,3 +136,11 @@ def copied_helpers(sources_by_file):
         for name, source in helpers:
             where[(name, hashlib.sha256(source.encode()).hexdigest())].add(path)
     return sorted((name, sorted(files)) for (name, _), files in where.items() if len(files) > 1)
+
+
+# Labels of the tests in a standalone test file whose callback checks nothing;
+# a test with no callback, such as test.todo("..."), has nothing to check
+def unchecked_script_tests(root, syntax):
+    checkers = script_checkers(root, syntax)
+    return [label for label, callback in script_tests(root, syntax)
+            if callback is not None and not makes_check(callback, syntax, checkers)]

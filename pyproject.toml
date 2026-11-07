@@ -27,6 +27,18 @@ shell = [
     "tree-sitter",
     "tree-sitter-bash",
 ]
+# What JavaScript coverage, linting and test checks read scripts with
+js = [
+    "tree-sitter",
+    "tree-sitter-javascript",
+]
+# What Lua coverage, linting and test checks read scripts with, and lupa for
+# running Lua inside a test
+lua = [
+    "tree-sitter",
+    "tree-sitter-lua",
+    "lupa>=2.8",
+]
 
 [project.urls]
 Homepage = "https://github.com/NearlyTRex/TestRex"
@@ -36,12 +48,15 @@ Issues = "https://github.com/NearlyTRex/TestRex/issues"
 testrex = "pytest_testrex.plugin"
 testrex_shell_cov = "pytest_testrex.shell_cov"
 testrex_shell_sandbox = "pytest_testrex.shell_sandbox"
+testrex_js_cov = "pytest_testrex.js_cov"
+testrex_lua_cov = "pytest_testrex.lua_cov"
+testrex_script_tests = "pytest_testrex.script_tests"
 
 [tool.setuptools]
 packages = ["pytest_testrex"]
 
 [tool.setuptools.package-data]
-pytest_testrex = ["pylintrc"]
+pytest_testrex = ["pylintrc", "eslintrc.json", "eslint.config.mjs"]
 
 [tool.pytest.ini_options]
 testpaths = ["Tests"]

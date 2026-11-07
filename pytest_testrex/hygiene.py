@@ -3,7 +3,7 @@ import ast
 import collections
 
 # Local imports
-from pytest_testrex.discovery import FUNCTION_DEFS, is_test_function
+from pytest_testrex.discovery import FUNCTION_DEFS, is_test_function, script_tests
 
 ###########################################################
 # File hygiene
@@ -62,3 +62,8 @@ def late_imports(tree):
 def line_count(path):
     with open(path, "r", encoding = "utf-8") as handle:
         return sum(1 for _ in handle)
+
+
+# Whether a standalone test file defines a test
+def holds_script_tests(root, syntax):
+    return bool(script_tests(root, syntax))
