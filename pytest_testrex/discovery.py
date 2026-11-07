@@ -1,7 +1,12 @@
 # Imports
 import ast
+import dataclasses
+import fnmatch
 import functools
 import os
+
+# Local imports
+from pytest_testrex import parsers
 
 ###########################################################
 # The suites under test
@@ -11,6 +16,9 @@ import os
 ###########################################################
 
 FUNCTION_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+# Directories no suite file is looked for in
+SKIPPED_DIRS = {"__pycache__", "node_modules"}
 
 
 # Whether path is one of the ignored directories or inside one
@@ -157,3 +165,154 @@ def checker_names(path, tests_dir, seen = frozenset()):
                 if helper and helper not in seen:
                     imported.update(checker_names(helper, tests_dir, seen | {path}))
     return local_checkers(tree, frozenset(imported)) | frozenset(imported)
+
+###########################################################
+# Standalone JavaScript and Lua tests
+#
+# A *.test.js file runs under node --test and a *_spec.lua under busted, each
+# collected as one pytest item. The rules read them with tree-sitter: a test
+# is a test(...) or it(...) call, and its callback checks something when it
+# calls assert, assert.x, t.assert.x or expect, or a function in the file
+# that does.
+###########################################################
+
+# What running and reading one language's test files takes
+@dataclasses.dataclass(frozen = True)
+class ScriptLanguage:
+    # The program and arguments that run one test file
+    runner: tuple
+    # Extensions of the sources its tests mirror and its linter reads
+    extensions: tuple
+    # Callees that define a test, and the suffix of one that defines a subtest
+    test_callees: frozenset
+    subtest_suffix: str
+    # The grammar's names for a call, its callee field and a function literal
+    call_type: str
+    callee_field: str
+    function_types: frozenset
+
+
+SCRIPT_LANGUAGES = {
+    "javascript": ScriptLanguage(
+        runner = ("node", "--test", "--test-reporter=tap"),
+        extensions = (".js", ".mjs", ".cjs"),
+        test_callees = frozenset(
+            name + modifier for name in ("test", "it") for modifier in ("", ".only", ".skip", ".todo")),
+        subtest_suffix = ".test",
+        call_type = "call_expression",
+        callee_field = "function",
+        function_types = frozenset({"arrow_function", "function_expression", "function", "generator_function"})),
+    "lua": ScriptLanguage(
+        runner = ("busted", "--output=TAP"),
+        extensions = (".lua",),
+        test_callees = frozenset({"it", "test", "spec"}),
+        subtest_suffix = "",
+        call_type = "function_call",
+        callee_field = "name",
+        function_types = frozenset({"function_definition"})),
+}
+
+# The grammars' names for a declared function and for a name bound to a value
+DECLARATION_TYPES = ("function_declaration",)
+BINDING_TYPES = ("variable_declarator", "assignment_statement")
+
+
+# The language whose test file patterns a file name matches, or None
+def script_language(name, patterns_by_language):
+    return next((language for language, patterns in patterns_by_language.items()
+                 if any(fnmatch.fnmatch(name, pattern) for pattern in patterns)), None)
+
+
+# Every standalone test file under the suites, sorted
+def discover_script_tests(suite_dirs, patterns_by_language, ignored_dirs = ()):
+    found = []
+    for suite_dir in suite_dirs:
+        for root, dirs, files in os.walk(suite_dir):
+            dirs[:] = [name for name in dirs if name not in SKIPPED_DIRS and not is_ignored(os.path.join(root, name), ignored_dirs)]
+            found.extend(os.path.join(root, name) for name in files if script_language(name, patterns_by_language))
+    return sorted(found)
+
+
+# The syntax tree of a standalone test file, parsed once; ParserMissing when
+# the language's grammar is not installed
+@functools.lru_cache(maxsize = None)
+def parsed_script(path, language):
+    with open(path, "r", encoding = "utf-8") as handle:
+        return parsers.parse(language, handle.read())
+
+
+# Every node under root, depth first
+def descendants(root):
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        yield node
+        stack.extend(reversed(node.children))
+
+
+# A call's callee as dotted text, with Lua's obj:method as obj.method
+def callee_name(call, syntax):
+    return "".join(call.child_by_field_name(syntax.callee_field).text.decode().split()).replace(":", ".")
+
+
+# Every call under root
+def calls_in(root, syntax):
+    return [node for node in descendants(root) if node.type == syntax.call_type]
+
+
+# Whether a callee name is an assertion: assert, assert.x, t.assert.x, expect
+def is_assertion_name(name):
+    parts = name.split(".")
+    return parts[0] == "expect" or any(part.startswith("assert") for part in parts)
+
+
+# Whether a call defines a test
+def is_test_call(call, syntax):
+    name = callee_name(call, syntax)
+    return name in syntax.test_callees or bool(syntax.subtest_suffix) and name.endswith(syntax.subtest_suffix)
+
+
+# (name, function) when a node declares a function or binds one to a name, else None
+def named_function(node, syntax):
+    if node.type in DECLARATION_TYPES:
+        return node.child_by_field_name("name").text.decode().replace(":", "."), node
+    if node.type not in BINDING_TYPES:
+        return None
+    # Lua's a, b = f, g gives its first name and value
+    name, value = node.child_by_field_name("name"), node.child_by_field_name("value")
+    if name is None or value is None or value.type not in syntax.function_types:
+        return None
+    return name.text.decode(), value
+
+
+# (name, function) for each function the file declares or binds to a name
+def script_functions(root, syntax):
+    return [found for found in (named_function(node, syntax) for node in descendants(root)) if found is not None]
+
+
+# Whether a function or callback makes a check, directly or through a checker
+def makes_check(function, syntax, checkers):
+    return any(is_assertion_name(name) or name in checkers for name in (callee_name(call, syntax) for call in calls_in(function, syntax)))
+
+
+# Names of the functions in the file that make checks, directly or through one another
+def script_checkers(root, syntax):
+    functions = script_functions(root, syntax)
+    checkers = set()
+    while True:
+        found = {name for name, function in functions if makes_check(function, syntax, checkers)}
+        if found <= checkers:
+            return frozenset(checkers)
+        checkers |= found
+
+
+# (label, callback or None) for each test call: the name as written and the line
+def script_tests(root, syntax):
+    found = []
+    for call in calls_in(root, syntax):
+        if is_test_call(call, syntax):
+            arguments = call.child_by_field_name("arguments").named_children
+            callbacks = [node for node in arguments if node.type in syntax.function_types]
+            name = arguments[0].text.decode() if arguments and arguments[0] not in callbacks else "<unnamed>"
+            found.append(("%s (line %d)" % (name, call.start_point[0] + 1), callbacks[-1] if callbacks else None))
+    return found

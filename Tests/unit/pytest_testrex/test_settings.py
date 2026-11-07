@@ -58,13 +58,36 @@ def test_requires_binary_always_leads_the_markers(tmp_path):
 def test_fixture_programs_add_to_the_shell_ones(tmp_path):
     loaded = settings.from_table({"fixture_programs": {"docker_compose": ["docker"]}}, str(tmp_path))
 
-    assert loaded.fixture_programs == {"shell_sandbox": {"bash", "unshare"}, "shell_traced_env": {"bash"}, "docker_compose": {"docker"}}
+    assert loaded.fixture_programs == {
+        "shell_sandbox": {"bash", "unshare"}, "shell_traced_env": {"bash"}, "js_traced_env": {"node"},
+        "lua_traced_env": {"lua5.4|lua|luajit"}, "docker_compose": {"docker"}}
+
+
+def test_script_test_settings_default_to_node_and_busted_names_and_shipped_linter_configs(tmp_path):
+    loaded = settings.from_table({}, str(tmp_path))
+
+    assert loaded.script_test_patterns == {"javascript": ("*.test.js", "*.test.mjs", "*.test.cjs"), "lua": ("*_spec.lua",)}
+    assert (loaded.js_sources, loaded.lua_sources, loaded.eslint_config, loaded.luacheck_config) == ((), (), "", "")
+    assert {".js", ".mjs", ".cjs", ".lua"} <= set(loaded.source_extensions)
+
+
+def test_script_test_settings_are_kept_with_paths_made_absolute(tmp_path):
+    loaded = settings.from_table({
+        "js_test_patterns": [], "lua_test_patterns": ["test_*.lua"], "js_sources": ["web"], "lua_sources": ["lua"],
+        "eslint_config": "eslint.config.mjs", "luacheck_config": "lint/luacheckrc"}, str(tmp_path))
+
+    assert loaded.script_test_patterns == {"javascript": (), "lua": ("test_*.lua",)}
+    assert (loaded.js_sources, loaded.lua_sources) == ((str(tmp_path / "web"),), (str(tmp_path / "lua"),))
+    assert loaded.eslint_config == str(tmp_path / "eslint.config.mjs")
+    assert loaded.luacheck_config == str(tmp_path / "lint" / "luacheckrc")
 
 
 @pytest.mark.parametrize("table, message", [
     ({"max_line": 3}, "has no setting 'max_line'"),
     ({"max_lines": "3"}, "max_lines must be a int"),
     ({"block_network": 1}, "block_network must be a bool"),
+    ({"js_test_patterns": "*.test.js"}, "js_test_patterns must be a list"),
+    ({"eslint_config": ["a"]}, "eslint_config must be a str"),
     ({"integration_suites": ["e2e"]}, "names suites not in suites: ['e2e']"),
     ({"doc_style": "javadoc"}, "doc_style must be one of ['comment', 'docstring', 'either'], not 'javadoc'"),
     ({"standards": ["no-prints"]}, "standards has no ['no-prints']"),

@@ -19,6 +19,8 @@ from pytest_testrex.standards import STANDARDS
 DEFAULT_FIXTURE_PROGRAMS = {
     "shell_sandbox": ["bash", "unshare"],
     "shell_traced_env": ["bash"],
+    "js_traced_env": ["node"],
+    "lua_traced_env": ["lua5.4|lua|luajit"],
 }
 
 DEFAULTS = {
@@ -32,13 +34,24 @@ DEFAULTS = {
     # Directories under tests_dir that hold data, not tests; never read
     "data_dirs": [],
     # What a split test_<name>/ package may cover besides a source directory
-    "source_extensions": [".py", ".sh"],
+    "source_extensions": [".py", ".sh", ".js", ".mjs", ".cjs", ".lua"],
     "max_lines": 900,
     # Fewer test files than this means discovery is looking in the wrong place
     "min_test_files": 1,
     # Markers that declare a program a test needs; requires_binary is built in,
     # and any other needs a pytest_testrex_requirement_checkers hook to enforce it
     "requirement_markers": ["requires_binary"],
+    # Standalone test files run as one pytest item each, by node --test and
+    # busted; an empty list turns the language off
+    "js_test_patterns": ["*.test.js", "*.test.mjs", "*.test.cjs"],
+    "lua_test_patterns": ["*_spec.lua"],
+    # Code eslint and luacheck read besides those test files: files, or
+    # directories searched for the language's extensions
+    "js_sources": [],
+    "lua_sources": [],
+    # Linter configs; empty uses the repository's own, else the shipped default
+    "eslint_config": "",
+    "luacheck_config": "",
     # Fixtures that need programs, and which, beyond the built-in shell ones
     "fixture_programs": {},
     # Pylint over the tests; empty uses the rcfile shipped with the plugin
@@ -77,6 +90,13 @@ DEFAULTS = {
 LIBRARY_RULES = ("documented", "doc-sections", "doc-length", "doc-paraphrase", "wrappers") + STANDARDS
 
 
+# Settings taken as they are, lists as tuples
+KEPT_SETTINGS = (
+    "suites", "integration_suites", "source_extensions", "max_lines", "min_test_files", "js_test_patterns",
+    "lua_test_patterns", "library_rules", "signature_packages", "block_network", "doc_style", "doc_max_lines",
+    "standards", "max_function_lines", "max_nesting", "max_module_lines")
+
+
 # A [tool.testrex] table that names or types a setting wrongly
 class SettingsError(Exception):
     pass
@@ -94,6 +114,12 @@ class Settings:
     source_extensions: tuple
     max_lines: int
     min_test_files: int
+    js_test_patterns: tuple
+    lua_test_patterns: tuple
+    js_sources: tuple
+    lua_sources: tuple
+    eslint_config: str
+    luacheck_config: str
     requirement_markers: tuple
     fixture_programs: dict
     pylint_rcfile: str
@@ -122,6 +148,11 @@ class Settings:
     @property
     def integration_dirs(self):
         return tuple(os.path.join(self.tests_dir, suite) for suite in self.integration_suites)
+
+    # {language: file name patterns} for the standalone test files
+    @property
+    def script_test_patterns(self):
+        return {"javascript": self.js_test_patterns, "lua": self.lua_test_patterns}
 
     # The data directories, which no rule reads
     @property
@@ -165,6 +196,19 @@ def check_library_settings(values):
         raise SettingsError("[tool.testrex] baseline counts must be whole numbers of findings: %s" % sorted(counts))
 
 
+# Settings that name paths, made absolute against repo_root; an empty single
+# path stays empty, meaning the default
+PATH_SETTINGS = ("library_targets", "wrapper_modules", "command_paths", "js_sources", "lua_sources")
+FILE_SETTINGS = ("pylint_rcfile", "eslint_config", "luacheck_config")
+
+
+# {setting: absolute path or paths} for the settings that name them
+def absolute_paths(values, repo_root):
+    found = {key: tuple(os.path.join(repo_root, path) for path in values[key]) for key in PATH_SETTINGS}
+    found.update({key: os.path.join(repo_root, values[key]) if values[key] else "" for key in FILE_SETTINGS})
+    return found
+
+
 # The [tool.testrex] table in pyproject.toml, merged over the defaults, with
 # paths made absolute against repo_root
 def from_table(table, repo_root):
@@ -174,37 +218,20 @@ def from_table(table, repo_root):
     if unknown_suites:
         raise SettingsError("[tool.testrex] integration_suites names suites not in suites: %s" % unknown_suites)
     check_library_settings(values)
-    tests_dir = os.path.join(repo_root, values["tests_dir"])
     markers = ["requires_binary"] + [name for name in values["requirement_markers"] if name != "requires_binary"]
     return Settings(
         repo_root = repo_root,
-        tests_dir = tests_dir,
-        suites = tuple(values["suites"]),
-        integration_suites = tuple(values["integration_suites"]),
+        tests_dir = os.path.join(repo_root, values["tests_dir"]),
         meta_dirs = tuple(os.path.normpath(path) for path in values["meta_dirs"]),
         data_dirs = tuple(os.path.normpath(path) for path in values["data_dirs"]),
-        source_extensions = tuple(values["source_extensions"]),
-        max_lines = values["max_lines"],
-        min_test_files = values["min_test_files"],
         requirement_markers = tuple(markers),
         fixture_programs = {
             name: set(programs) for name, programs in dict(DEFAULT_FIXTURE_PROGRAMS, **values["fixture_programs"]).items()},
-        pylint_rcfile = os.path.join(repo_root, values["pylint_rcfile"]) if values["pylint_rcfile"] else "",
-        library_targets = tuple(os.path.join(repo_root, path) for path in values["library_targets"]),
-        library_rules = tuple(values["library_rules"]),
-        signature_packages = tuple(values["signature_packages"]),
         sealed_programs = frozenset(values["sealed_programs"]),
-        block_network = values["block_network"],
-        doc_style = values["doc_style"],
-        doc_max_lines = values["doc_max_lines"],
         wrappers = dict(values["wrappers"]),
-        wrapper_modules = tuple(os.path.join(repo_root, path) for path in values["wrapper_modules"]),
-        standards = tuple(values["standards"]),
-        command_paths = tuple(os.path.join(repo_root, path) for path in values["command_paths"]),
-        max_function_lines = values["max_function_lines"],
-        max_nesting = values["max_nesting"],
-        max_module_lines = values["max_module_lines"],
-        baseline = dict(values["baseline"]))
+        baseline = dict(values["baseline"]),
+        **absolute_paths(values, repo_root),
+        **{key: tuple(value) if isinstance(value, list) else value for key, value in values.items() if key in KEPT_SETTINGS})
 
 
 # The pyproject.toml at or above start that has a [tool.testrex] table, as

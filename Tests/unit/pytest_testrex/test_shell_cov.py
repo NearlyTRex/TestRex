@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from fixture_helpers import unwrap
-from pytest_testrex import shell_cov
+from pytest_testrex import shell_cov, statement_coverage
 
 # A real gradlew construct tree-sitter-bash cannot read
 GRADLEW_CONSTRUCT = """\
@@ -58,7 +58,7 @@ def test_measure_and_report(tmp_path):
     assert sorted(results) == ["b.bash", os.path.join("bin", "a.sh")]
     assert results[os.path.join("bin", "a.sh")] == {
         "statements": 2, "covered": 1, "missed": [(2, 2)], "missed_source": ["echo 2"]}
-    assert shell_cov.get_total_percent(results) == pytest.approx(200 / 3)
+    assert statement_coverage.get_total_percent(results) == pytest.approx(200 / 3)
     assert not shell_cov.meets_floor(results, 100)
     assert shell_cov.meets_floor(results, 60)
     assert shell_cov.meets_floor(results, None)
@@ -69,8 +69,8 @@ def test_measure_and_report(tmp_path):
 
 
 def test_empty_results_are_fully_covered():
-    assert shell_cov.get_total_percent({}) == 100.0
-    assert shell_cov.get_percent({"statements": 0, "covered": 0, "missed": []}) == 100.0
+    assert statement_coverage.get_total_percent({}) == 100.0
+    assert statement_coverage.get_percent({"statements": 0, "covered": 0, "missed": []}) == 100.0
     assert "Floor" not in shell_cov.render_report({})
 
 
@@ -81,8 +81,8 @@ def test_find_scripts_accepts_files(tmp_path):
 
 
 def test_format_missed_truncates():
-    assert shell_cov.format_missed([(1, 1), (3, 5)]) == "1, 3-5"
-    assert shell_cov.format_missed([(n, n) for n in range(1, 12)]).endswith(", ...")
+    assert statement_coverage.format_missed([(1, 1), (3, 5)]) == "1, 3-5"
+    assert statement_coverage.format_missed([(n, n) for n in range(1, 12)]).endswith(", ...")
 
 
 # --- plugin hooks -------------------------------------------------------
@@ -175,7 +175,7 @@ def test_session_finish_measures_gates_and_reports(tmp_path, monkeypatch):
 
 
 def test_oversized_script_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setattr(shell_cov, "MAX_SCRIPT_BYTES", 10)
+    monkeypatch.setattr(statement_coverage, "MAX_SOURCE_BYTES", 10)
     (tmp_path / "big.sh").write_text("echo hello world\n")
     (tmp_path / "traces").mkdir()
     with pytest.raises(shell_cov.ShellParseError, match="big.sh: larger than 10 bytes"):
@@ -217,7 +217,7 @@ def test_report_has_no_missed_section_when_everything_ran(tmp_path):
 
 
 def test_report_caps_the_missed_statements_listed_per_script(tmp_path):
-    count = shell_cov.MISSED_LISTED + 3
+    count = statement_coverage.MISSED_LISTED + 3
     (tmp_path / "a.sh").write_text("".join(f"echo {n}\n" for n in range(count)))
     traces = tmp_path / "traces"
     traces.mkdir()
@@ -225,8 +225,8 @@ def test_report_caps_the_missed_statements_listed_per_script(tmp_path):
 
     report = shell_cov.render_report(shell_cov.measure(str(tmp_path), [str(tmp_path)], str(traces)))
 
-    assert f"  a.sh:{shell_cov.MISSED_LISTED}  echo {shell_cov.MISSED_LISTED - 1}" in report
-    assert f"a.sh:{shell_cov.MISSED_LISTED + 1}" not in report
+    assert f"  a.sh:{statement_coverage.MISSED_LISTED}  echo {statement_coverage.MISSED_LISTED - 1}" in report
+    assert f"a.sh:{statement_coverage.MISSED_LISTED + 1}" not in report
     assert "a.sh: ... and 3 more" in report
 
 

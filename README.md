@@ -11,7 +11,7 @@ A pytest plugin that holds a test suite to one layout and one standard of test q
 My repos share one way of laying out and writing tests. This plugin carries the rules, so a repo
 gets them, and every fix to them, through one dependency bump instead of a copied meta suite.
 
-It does five things:
+It does six things:
 
 - **The meta suite.** Around thirty rules that read every test file and fail on tests that cannot
   fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, broken
@@ -24,6 +24,8 @@ It does five things:
   starts them.
 - **Shell scripts.** Coverage for the bash scripts tests run, which coverage.py never sees, and a
   disposable machine to run setup scripts in as root without touching the real one.
+- **JavaScript and Lua.** Coverage for the JS and Lua the tests run, `*.test.js` and `*_spec.lua`
+  files collected as tests, and the quality rules, eslint and luacheck held over them.
 - **Library standards.** Documentation and coding-standard rules for the repository's own code,
   each adopted with a baseline count that may only fall, so a codebase moves towards them a fix at
   a time.
@@ -95,6 +97,7 @@ mirrors the source, two suites can hold files with the same basename, so run pyt
 | Programs | a program is checked for at run time instead of by a marker; a marker names a program by anything but a string literal; a test uses a program fixture without declaring its programs; `subprocess` runs a program the file never declares; an integration file declares no program at all |
 | Signatures | an override in `signature_packages` renames, drops, reorders or changes the default of a parameter of the method it overrides |
 | Pylint | pylint reports anything in the tests, with the shipped rcfile or `pylint_rcfile`; the library breaks a `library_rules` rule |
+| JavaScript and Lua | a `*.test.js` or `*_spec.lua` file holds no `test`/`it`, has a test that makes no `assert`/`expect` call (directly or through a function in the file), mirrors no `<name>.js` or `<name>.lua`, or sits outside `integration_suites`; eslint or luacheck reports anything in those files or in `js_sources`/`lua_sources` |
 
 A check counts as an `assert`, a mock's `assert_*`, `pytest.fail`, a `pytest.raises` or
 `pytest.warns` block, or a call to a helper that makes one, including helpers imported by name from
@@ -216,6 +219,55 @@ It needs Linux with unprivileged user namespaces. Ubuntu 24.04 restricts them, s
 or fail with `--shell-sandbox-required`. Override the `shell_sandbox_options` fixture to add stubs
 (`extra_stubs`), tools (`extra_tools`), accounts and hidden directories.
 
+## JavaScript and Lua
+
+**Coverage** works like shell coverage, one plugin per language, each off until its options are
+given. The `js` and `lua` extras install the parsers (`pip install "pytest-testrex[js,lua]"`).
+
+```bash
+pytest --js-cov-source web --js-cov-branch --js-cov-fail-under 100 \
+       --lua-cov-source scripts --lua-cov-fail-under 100
+```
+
+The options mirror the shell ones: `--js-cov-source`, `-exclude`, `-report`, `-branch` and
+`-fail-under`, and the same for `--lua-cov-`, which has no `-branch`.
+
+- **JavaScript.** Every node a test starts, and every node it starts in turn, `node --test` workers
+  included, writes V8 coverage through an inherited `NODE_V8_COVERAGE`. A statement ran when V8
+  counted its start in any process. `--js-cov-branch` also counts the right side of each `&&`, `||`
+  and `??` and each arm of `?:`.
+- **Lua.** Every `lua` or `luajit` a test starts, Lua 5.1 to 5.5, runs a line hook through an
+  inherited `LUA_INIT`, chaining any `LUA_INIT` already set. A statement ran when any traced line falls
+  inside it. A line hook can't see which side of `and`/`or` ran, so there is no branch option.
+
+A test that builds its own environment takes it from `js_traced_env` or `lua_traced_env`.
+
+**Lua inside the test process.** `lua_runtime` makes a [lupa](https://github.com/scoder/lupa)
+runtime with the same hook, for scripts written for a host such as WirePlumber or a game engine.
+Fake the host's API in its globals, then run the script with the arguments it reads through `...`:
+
+```python
+def test_pins_game_streams(lua_runtime):
+    runner = lua_runtime()                       # lua="lua54" by default; lua51..lua55, luajit21
+    runner.globals.Log = runner.lua.eval("{ info = function() end }")
+    runner.run_file("scripts/policy.lua", runner.lua.table_from({"allow": "Game.exe"}))
+    assert ...
+```
+
+**Standalone tests.** Under the suites, files matching `js_test_patterns` run with
+`node --test` and files matching `lua_test_patterns` with `busted`, one pytest item per file, from
+the repository root with pytest's environment, so the coverage above reaches them. A failure names
+the tests the runner's TAP output marks `not ok`. An item skips when its runner is not installed.
+These files need a program outside the process, so they belong in an integration suite.
+
+**Lint.** eslint runs over the JS test files and `js_sources`, and luacheck over the Lua test files
+and `lua_sources`, each as a meta-suite rule that skips when the linter is not installed:
+
+- **eslint config.** It uses `eslint_config`, else the repository's own, else a shipped
+  recommended-rules config for node with `.cjs` as CommonJS.
+- **luacheck config.** It uses `luacheck_config`, else the repository's `.luacheckrc`, else
+  `--std max`, with busted's globals in test files.
+
 ## Settings
 
 Every path is relative to the directory holding `pyproject.toml`. A setting the plugin doesn't know,
@@ -228,11 +280,15 @@ or one of the wrong type, stops the run.
 | `integration_suites` | `["integration"]` | Suites whose files must declare the programs they need |
 | `meta_dirs` | `["unit/meta"]` | Directories that mirror nothing on purpose |
 | `data_dirs` | `[]` | Directories under `tests_dir` holding data, never read as tests |
-| `source_extensions` | `[".py", ".sh"]` | What a split `test_<name>/` package may cover besides a directory |
+| `source_extensions` | `[".py", ".sh", ".js", ".mjs", ".cjs", ".lua"]` | What a split `test_<name>/` package may cover besides a directory |
 | `max_lines` | `900` | The longest a test file may be |
 | `min_test_files` | `1` | Fewer test files means discovery is looking in the wrong place |
 | `requirement_markers` | `["requires_binary"]` | Markers that declare a needed program; any beyond `requires_binary` need a hook |
-| `fixture_programs` | `{}` | `{fixture: [programs]}` a test using the fixture must declare, beyond `shell_sandbox` and `shell_traced_env` |
+| `fixture_programs` | `{}` | `{fixture: [programs]}` a test using the fixture must declare, beyond `shell_sandbox`, `shell_traced_env`, `js_traced_env` and `lua_traced_env`; `"a\|b"` is met by declaring either |
+| `js_test_patterns` | `["*.test.js", "*.test.mjs", "*.test.cjs"]` | JavaScript test files run by `node --test`; `[]` turns them off |
+| `lua_test_patterns` | `["*_spec.lua"]` | Lua test files run by `busted`; `[]` turns them off |
+| `js_sources`, `lua_sources` | `[]` | Files or directories eslint and luacheck also lint |
+| `eslint_config`, `luacheck_config` | `""` | Lint config; empty uses the repository's own, else the shipped default |
 | `pylint_rcfile` | the shipped one | Pylint config for the tests |
 | `library_targets` | `[]` | Library paths held to `library_rules` |
 | `library_rules` | `["unspecified-encoding"]` | Pylint rules the library's own linter lacks |
@@ -258,9 +314,11 @@ pip install --no-deps --no-build-isolation -e .
 pytest -q
 ```
 
-The sandbox tests need unprivileged user namespaces and skip without them; the shell coverage
-tests need bash, and its cross-check against a real parser needs `shfmt`, which `shfmt-py` puts
-next to the venv's Python. To check any script's statements against shfmt:
+The sandbox tests need unprivileged user namespaces and skip without them. The JavaScript tests
+need node and eslint, and the Lua ones lua (any of 5.1 to 5.4, or luajit), busted and luacheck
+(`apt install nodejs eslint lua5.4 luajit lua-busted lua-check`); each skips without its
+program. The shell coverage tests need bash, and its cross-check against a real parser needs
+`shfmt`, which `shfmt-py` puts next to the venv's Python. To check any script's statements against shfmt:
 
 ```bash
 python Tests/shfmt_oracle.py path/to/a.sh path/to/b.sh

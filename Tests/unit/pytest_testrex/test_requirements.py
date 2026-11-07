@@ -83,6 +83,23 @@ def test_undeclared_fixture_programs_are_reported_per_test(parse_sample):
     assert requirements.undeclared_fixture_programs(tree, [conftest], SHELL_FIXTURES) == ["test_bare needs ['bash', 'unshare']"]
 
 
+def test_a_fixture_needing_either_program_is_met_by_declaring_one(parse_sample):
+    tree = parse_sample("""
+        import pytest
+        def test_bare(lua_traced_env): pass
+        @pytest.mark.requires_binary('luajit')
+        def test_one(lua_traced_env): pass
+        @pytest.mark.requires_binary('lua5.1|lua5.4')
+        def test_overlap(lua_traced_env): pass
+        @pytest.mark.requires_binary('node')
+        def test_other(lua_traced_env): pass
+        """)
+    fixtures = {"lua_traced_env": {"lua5.4|lua|luajit"}}
+
+    assert requirements.undeclared_fixture_programs(tree, [], fixtures) == [
+        "test_bare needs ['lua5.4|lua|luajit']", "test_other needs ['lua5.4|lua|luajit']"]
+
+
 @pytest.mark.parametrize("source, lines", [
     ("def test_a(requires_tool):\n    pass\n", [1]),
     ("import shutil, pytest\ndef test_a():\n    if not shutil.which('git'):\n        pytest.skip('no git')\n", [3]),
