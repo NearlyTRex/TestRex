@@ -51,6 +51,7 @@ testrex_shell_sandbox = "pytest_testrex.shell_sandbox"
 testrex_js_cov = "pytest_testrex.js_cov"
 testrex_lua_cov = "pytest_testrex.lua_cov"
 testrex_script_tests = "pytest_testrex.script_tests"
+testrex_process_guard = "pytest_testrex.process_guard"
 
 [tool.setuptools]
 packages = ["pytest_testrex"]
