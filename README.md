@@ -11,7 +11,7 @@ A pytest plugin that holds a test suite to one layout and one standard of test q
 My repos share one way of laying out and writing tests. This plugin carries the rules, so a repo
 gets them, and every fix to them, through one dependency bump instead of a copied meta suite.
 
-It does six things:
+It does seven things:
 
 - **The meta suite.** Around thirty rules that read every test file and fail on tests that cannot
   fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, broken
@@ -22,6 +22,8 @@ It does six things:
 - **Hermetic runs.** Outbound network is closed to tests unless they are marked `allow_network`,
   and the programs a repo seals (`sudo`, `ssh`, a password manager) are refused however a test
   starts them.
+- **No leaked processes.** A test that leaves a process running, its own child or an orphan
+  further down, fails and the process is killed.
 - **Shell scripts.** Coverage for the bash scripts tests run, which coverage.py never sees, and a
   disposable machine to run setup scripts in as root without touching the real one.
 - **JavaScript and Lua.** Coverage for the JS and Lua the tests run, `*.test.js` and `*_spec.lua`
@@ -176,6 +178,18 @@ A repo with its own kind of requirement, such as tools it installs itself, names
 def pytest_testrex_requirement_checkers(config):
     return {"requires_tool": lambda names: [f"{name} (tool)" for name in names if not installed(name)]}
 ```
+
+## Leaked processes
+
+Any repo with TestRex installed gets this; it needs no `[tool.testrex]` table. On Linux each
+pytest process becomes a child subreaper, so a process whose parent exits is adopted by pytest
+instead of escaping to init: a browser behind a launcher script that `quit()` stopped, or a daemon
+that double-forked. When a test that started anything ends, whatever it started that is still
+running fails the test with its command line, and is killed.
+
+A process gets `process_guard_settle_seconds` (default 5) to finish exiting before it counts. A
+session or module fixture's long-running process is not blamed on the tests that use it. Tests
+that launch nothing skip the check. `-p no:testrex_process_guard` turns it off.
 
 ## Shell scripts
 
