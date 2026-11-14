@@ -313,3 +313,18 @@ def test_ruff_runs_once_per_argument_list_from_the_repository(commands, monkeypa
 
     assert [result.returncode for result in results] == [0, 0]
     assert commands == [(["ruff"] + arguments, str(tmp_path)) for arguments in lint.ruff_runs(str(tmp_path), True)]
+
+
+def test_pylint_runs_with_the_roots_on_its_path_and_a_fixed_hash_seed(monkeypatch):
+    ran = []
+
+    def run(command, **kwargs):
+        ran.append(kwargs["env"])
+        return subprocess.CompletedProcess(command, 0, "", "")
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("PYTHONHASHSEED", "random")
+
+    lint.run_pylint_once("rc", "cwd", ["a", "b"], "x.py")
+
+    assert ran[0]["PYTHONPATH"] == os.pathsep.join(["a", "b"])
+    assert ran[0]["PYTHONHASHSEED"] == "0"

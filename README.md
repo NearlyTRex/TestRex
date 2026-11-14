@@ -127,7 +127,8 @@ pytest's Python, else the one on `PATH`, and skips when there is none. `ruff_for
 holds the repository to ruff's formatting.
 
 A pylint run whose parallel mode crashes, as it does on some newer Pythons, is repeated in one
-process.
+process. Pylint runs with a fixed `PYTHONHASHSEED`: which import cycles it reports depends on set
+order, so without one the `pylint-source` count would change from run to run.
 
 ## Library standards
 

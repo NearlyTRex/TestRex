@@ -35,9 +35,14 @@ def pylint_targets(tests_dir, suite_files):
 CRASH = "Traceback (most recent call last)"
 
 
+# pylint walks the import graph in set order, so which import cycles it reports, and so how
+# many messages a baseline counts, changes with every hash seed unless the seed is fixed
+PYLINT_HASH_SEED = "0"
+
+
 # Run pylint once with the rcfile from cwd, with roots on PYTHONPATH, and return the finished process
 def run_pylint_once(rcfile, cwd, roots, *arguments):
-    env = dict(os.environ, PYTHONPATH = os.pathsep.join(roots))
+    env = dict(os.environ, PYTHONPATH = os.pathsep.join(roots), PYTHONHASHSEED = PYLINT_HASH_SEED)
     return subprocess.run(
         [sys.executable, "-m", "pylint", "--rcfile=" + rcfile, "--score=no", *arguments],
         cwd = cwd, env = env, capture_output = True, text = True, check = False)
