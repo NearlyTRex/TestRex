@@ -44,6 +44,9 @@ def pytest_configure(config):
     for marker in loaded.requirement_markers[1:]:
         config.addinivalue_line("markers", "%s(*names): skips, before its fixtures run, unless every name is available" % marker)
     config.addinivalue_line("markers", "allow_network: may open outbound connections")
+    if loaded.integration_marker:
+        config.addinivalue_line(
+            "markers", "%s: runs a program outside the process; every integration file sets it" % loaded.integration_marker)
     # A pytest run inside a test, such as pytester's, finds the seal in place
     # and must leave it for the session that applied it to remove
     config.stash[SEALED_KEY] = bool(loaded.sealed_programs) and seal.seal(loaded.sealed_programs)

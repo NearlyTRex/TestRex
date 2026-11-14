@@ -13,10 +13,11 @@ gets them, and every fix to them, through one dependency bump instead of a copie
 
 It does seven things:
 
-- **The meta suite.** Around thirty rules that read every test file and fail on tests that cannot
-  fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, broken
-  override signatures and pylint findings. There are no exemption lists: a test that trips a rule
-  is fixed.
+- **The meta suite.** Around forty rules that read every test file and fail on tests that cannot
+  fail, files in the wrong place, duplicated definitions and helpers, undeclared programs, tests
+  that change the process or skip without a reason, broken override signatures, modules without
+  tests, coverage raised by exclusions, and pylint and ruff findings. There are no exemption lists:
+  a test that trips a rule is fixed.
 - **Required programs.** `requires_binary` (and any marker a repo adds) skips a test while
   collecting, before any of its fixtures start, when a program it needs is missing.
 - **Hermetic runs.** Outbound network is closed to tests unless they are marked `allow_network`,
@@ -92,18 +93,41 @@ mirrors the source, two suites can hold files with the same basename, so run pyt
 
 | Area | A test file fails when |
 |---|---|
-| Discovery | fewer than `min_test_files` were found, or a suite holds none, so the rules would be guarding nothing |
+| Discovery | fewer than `min_test_files` were found, or a suite holds none, so the rules would be guarding nothing; a test file sits outside the suites |
 | Hygiene | a test, test method, helper or constant is defined twice; an import sits below the header; it is longer than `max_lines`; it holds no test |
+| Practices | a test changes the process directly (`os.environ`, `os.chdir`, `sys.path`, `sys.modules`, `sys.argv`, the standard streams, the umask) instead of through `monkeypatch`; `pytest.raises(Exception)` has no `match`; a `pytest.raises` block holds more than the call that raises; a skip, `skipif` or `xfail` gives no reason; a `# noqa` or `# type: ignore` names no codes, or pylint is switched off for a file or for everything |
 | Quality | a test checks nothing; every check sits in a branch, loop or try; an assertion is true by construction; it only checks `is not None` or `isinstance`; an `except` swallows silently; a raising callable is built from `(_ for _ in ()).throw()`; a helper is copied between files |
 | Layout | a split package holds no test modules, hides tests in a file pytest won't collect, covers no real module or has a single-file twin; a directory mirrors nothing in the repository |
 | Programs | a program is checked for at run time instead of by a marker; a marker names a program by anything but a string literal; a test uses a program fixture without declaring its programs; `subprocess` runs a program the file never declares; an integration file declares no program at all |
+| Markers | an integration file has no module-level `pytestmark` with `integration_marker`, or a unit file has one, so `pytest -m "not integration"` would run the wrong tests |
+| Coverage | a module under `library_targets` or `require_tests_for` has no `test_<module>.py`, `test_<module>/` or standalone test file at its mirrored path; a no-cover pragma, or a coverage `omit` or exclusion pattern outside `coverage_omit_allowed` and `coverage_exclude_allowed`, raises the figure without a test |
 | Signatures | an override in `signature_packages` renames, drops, reorders or changes the default of a parameter of the method it overrides |
-| Pylint | pylint reports anything in the tests, with the shipped rcfile or `pylint_rcfile`; the library breaks a `library_rules` rule |
+| Pylint | pylint reports anything in the tests, with the shipped rcfile or `pylint_rcfile`; the library breaks a `library_rules` rule; pylint reports more in the library than the `pylint-source` baseline allows |
+| Ruff | `ruff check` reports anything in the repository, or `ruff format --check` would change a file when `ruff_format` is on |
 | JavaScript and Lua | a `*.test.js` or `*_spec.lua` file holds no `test`/`it`, has a test that makes no `assert`/`expect` call (directly or through a function in the file), mirrors no `<name>.js` or `<name>.lua`, or sits outside `integration_suites`; eslint or luacheck reports anything in those files or in `js_sources`/`lua_sources` |
 
 A check counts as an `assert`, a mock's `assert_*`, `pytest.fail`, a `pytest.raises` or
 `pytest.warns` block, or a call to a helper that makes one, including helpers imported by name from
 a `*_helpers.py` beside the test or above it.
+
+## Pylint and ruff
+
+The tests are held to pylint with the shipped rcfile, which turns off only what pytest idioms trip.
+The library is held to pylint too, with a shipped library rcfile that leaves out only the rules
+other checks own: documentation (the `documented` rule), line length (the formatter), string
+formatting style, and size (`long-functions` and `long-modules`). Its messages count against a
+`pylint-source` baseline, like the library standards below, so a large codebase adopts it a fix at a
+time. Point `pylint_source_rcfile` at the repository's own pylint config to use that instead.
+
+Ruff runs over the whole repository from its root, the way
+[NearlyTRex/Workflows](https://github.com/NearlyTRex/Workflows)' CI runs it: under the repository's
+own `[tool.ruff]`, `ruff.toml` or `.ruff.toml`, else with only the defect rules CI selects
+(`E4,E7,E9,F`), since ruff's own default set has grown past them. It uses the ruff installed beside
+pytest's Python, else the one on `PATH`, and skips when there is none. `ruff_format = true` also
+holds the repository to ruff's formatting.
+
+A pylint run whose parallel mode crashes, as it does on some newer Pythons, is repeated in one
+process.
 
 ## Library standards
 
@@ -120,9 +144,11 @@ The rules above read the tests. These read the code under `library_targets`, and
 | `no-print`, `no-exit` | `standards` | library code prints, or exits instead of raising; `command_paths` may do both |
 | `mutable-defaults` | `standards` | a default argument is a list, dict or set every call shares |
 | `bare-except` | `standards` | an `except:` names no exception, so it also catches `KeyboardInterrupt` |
+| `silent-except` | `standards` | an `except` handler's whole body is `pass`, hiding the failure it catches |
 | `import-time-io` | `standards` | importing the module reads the environment, opens a file or runs a program |
 | `no-narration` | `standards` | a comment or docstring, in the library or the tests, tells how the code came to be: "now fixed", "was previously", "as discussed", "I added" |
 | `commented-out-code` | `standards` | a comment is a statement commented out; an indented example in a comment block is not |
+| `blanket-suppression` | `standards` | a `# noqa` or `# type: ignore` names no codes, or pylint is switched off for a file or for every message |
 | `long-functions` | `standards` | a function runs past `max_function_lines` (40) or nests past `max_nesting` (3) |
 | `long-modules` | `standards` | a module runs past `max_module_lines` (900), the same limit test files have |
 
@@ -292,6 +318,7 @@ or one of the wrong type, stops the run.
 | `tests_dir` | `"Tests"` | Where the suites live |
 | `suites` | `["unit", "integration"]` | The suites under `tests_dir` |
 | `integration_suites` | `["integration"]` | Suites whose files must declare the programs they need |
+| `integration_marker` | `"integration"` | The marker every integration file, and no unit file, sets on the whole module; the plugin registers it and puts it on standalone script tests; `""` turns the rule off |
 | `meta_dirs` | `["unit/meta"]` | Directories that mirror nothing on purpose |
 | `data_dirs` | `[]` | Directories under `tests_dir` holding data, never read as tests |
 | `source_extensions` | `[".py", ".sh", ".js", ".mjs", ".cjs", ".lua"]` | What a split `test_<name>/` package may cover besides a directory |
@@ -306,6 +333,15 @@ or one of the wrong type, stops the run.
 | `pylint_rcfile` | the shipped one | Pylint config for the tests |
 | `library_targets` | `[]` | Library paths held to `library_rules` |
 | `library_rules` | `["unspecified-encoding"]` | Pylint rules the library's own linter lacks |
+| `pylint_source` | `true` | Hold `library_targets` to pylint, against the `pylint-source` baseline |
+| `pylint_source_rcfile` | the shipped one | Pylint config for the library |
+| `ruff`, `ruff_format` | `true`, `false` | Hold the repository to `ruff check`, and to `ruff format --check` |
+| `require_tests` | `true` | Every module under `library_targets` and `require_tests_for` needs tests |
+| `require_tests_for` | `[]` | Directories or files beyond `library_targets` whose modules need tests |
+| `tests_not_required` | `[]` | Files under those that are not modules, such as a shipped config; say why beside each |
+| `check_coverage_config` | `true` | Fail on no-cover pragmas and on coverage exclusions not allowed below |
+| `coverage_omit_allowed` | `["Tests/*", ".venv/*", "venv/*"]` | Coverage `omit` patterns a repository may declare |
+| `coverage_exclude_allowed` | `["if __name__ == .__main__.:"]` | Coverage `exclude_lines` and `exclude_also` patterns a repository may declare |
 | `signature_packages` | `[]` | Packages whose overrides must keep their base method's signature |
 | `sealed_programs` | `[]` | Programs a test may never start for real |
 | `block_network` | `true` | Refuse in-process outbound connections unless a test is marked `allow_network` |
@@ -317,7 +353,7 @@ or one of the wrong type, stops the run.
 | `command_paths` | `[]` | Command entry points, which may print and exit |
 | `max_function_lines`, `max_nesting` | `40`, `3` | The `long-functions` limits |
 | `max_module_lines` | `900` | The `long-modules` limit |
-| `baseline` | `{}` | `{rule: findings allowed}`, to adopt a library rule before every finding is fixed |
+| `baseline` | `{}` | `{rule: findings allowed}`, to adopt a library rule or `pylint-source` before every finding is fixed |
 
 ## Developing
 

@@ -29,6 +29,9 @@ DEFAULTS = {
     "suites": ["unit", "integration"],
     # Suites whose files need a program outside the process, and say which
     "integration_suites": ["integration"],
+    # The marker every integration file sets on the whole module, so
+    # `pytest -m "not integration"` leaves them out; empty turns the rule off
+    "integration_marker": "integration",
     # Directories under tests_dir that mirror nothing on purpose
     "meta_dirs": ["unit/meta"],
     # Directories under tests_dir that hold data, not tests; never read
@@ -59,6 +62,13 @@ DEFAULTS = {
     # Library code held to a few pylint rules its own linter lacks
     "library_targets": [],
     "library_rules": ["unspecified-encoding"],
+    # library_targets held to pylint; empty uses the library rcfile shipped with the plugin
+    "pylint_source": True,
+    "pylint_source_rcfile": "",
+    # ruff over the repository, under its own config, else the defect rules
+    # Workflows' CI selects; ruff_format also holds it to ruff's formatting
+    "ruff": True,
+    "ruff_format": False,
     # Packages whose overrides must keep their base method's signature
     "signature_packages": [],
     # Programs a test may never start for real
@@ -81,6 +91,17 @@ DEFAULTS = {
     "max_function_lines": 40,
     "max_nesting": 3,
     "max_module_lines": 900,
+    # Every module of library_targets, and of these further directories or
+    # files, has tests mirroring it
+    "require_tests": True,
+    "require_tests_for": [],
+    # Files under those that are not modules, such as a shipped config; each
+    # wants a comment saying why it needs no tests
+    "tests_not_required": [],
+    # Fail on a no-cover pragma, and on a coverage omit or exclusion pattern not listed here
+    "check_coverage_config": True,
+    "coverage_omit_allowed": ["Tests/*", ".venv/*", "venv/*"],
+    "coverage_exclude_allowed": ["if __name__ == .__main__.:"],
     # {library rule: findings allowed}, to adopt a rule before every finding is
     # fixed; a count that drops must be lowered, so progress is never lost
     "baseline": {},
@@ -89,12 +110,16 @@ DEFAULTS = {
 # The rules over library code, by the names baseline counts them under
 LIBRARY_RULES = ("documented", "doc-sections", "doc-length", "doc-paraphrase", "wrappers") + STANDARDS
 
+# Everything a baseline may count: the library rules, and pylint's messages over the library
+BASELINE_RULES = LIBRARY_RULES + ("pylint-source",)
+
 
 # Settings taken as they are, lists as tuples
 KEPT_SETTINGS = (
-    "suites", "integration_suites", "source_extensions", "max_lines", "min_test_files", "js_test_patterns",
-    "lua_test_patterns", "library_rules", "signature_packages", "block_network", "doc_style", "doc_max_lines",
-    "standards", "max_function_lines", "max_nesting", "max_module_lines")
+    "suites", "integration_suites", "integration_marker", "source_extensions", "max_lines", "min_test_files",
+    "js_test_patterns", "lua_test_patterns", "library_rules", "signature_packages", "block_network", "doc_style",
+    "doc_max_lines", "standards", "max_function_lines", "max_nesting", "max_module_lines", "ruff", "ruff_format",
+    "pylint_source", "require_tests", "check_coverage_config", "coverage_omit_allowed", "coverage_exclude_allowed")
 
 
 # A [tool.testrex] table that names or types a setting wrongly
@@ -109,6 +134,7 @@ class Settings:
     tests_dir: str
     suites: tuple
     integration_suites: tuple
+    integration_marker: str
     meta_dirs: tuple
     data_dirs: tuple
     source_extensions: tuple
@@ -125,6 +151,10 @@ class Settings:
     pylint_rcfile: str
     library_targets: tuple
     library_rules: tuple
+    pylint_source: bool
+    pylint_source_rcfile: str
+    ruff: bool
+    ruff_format: bool
     signature_packages: tuple
     sealed_programs: frozenset
     block_network: bool
@@ -137,6 +167,12 @@ class Settings:
     max_function_lines: int
     max_nesting: int
     max_module_lines: int
+    require_tests: bool
+    require_tests_for: tuple
+    tests_not_required: tuple
+    check_coverage_config: bool
+    coverage_omit_allowed: tuple
+    coverage_exclude_allowed: tuple
     baseline: dict
 
     # The suites, as directories
@@ -159,12 +195,29 @@ class Settings:
     def ignored_dirs(self):
         return tuple(os.path.join(self.tests_dir, path) for path in self.data_dirs)
 
+    # The sources whose every module needs tests; none when require_tests is off
+    @property
+    def tested_sources(self):
+        return self.library_targets + self.require_tests_for if self.require_tests else ()
+
     # The pylint rcfile the tests are held to: the repository's own, else the shipped one
     @property
     def rcfile(self):
         if self.pylint_rcfile:
             return self.pylint_rcfile
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "pylintrc")
+
+    # The pylint rcfile the library is held to: the repository's own, else the shipped one
+    @property
+    def source_rcfile(self):
+        if self.pylint_source_rcfile:
+            return self.pylint_source_rcfile
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "library-pylintrc")
+
+
+# Whether a value is of the type, a bool counting only as a bool and not as the int it subclasses
+def is_exactly(value, expected):
+    return isinstance(value, expected) and isinstance(value, bool) == (expected is bool)
 
 
 # Refuse settings the plugin doesn't know, and values of the wrong type
@@ -173,7 +226,7 @@ def check_types(table):
         if key not in DEFAULTS:
             raise SettingsError("[tool.testrex] has no setting %r; known: %s" % (key, ", ".join(sorted(DEFAULTS))))
         expected = type(DEFAULTS[key])
-        if type(value) is not expected:
+        if not is_exactly(value, expected):
             raise SettingsError("[tool.testrex] %s must be a %s, not %r" % (key, expected.__name__, value))
 
 
@@ -184,22 +237,24 @@ def check_library_settings(values):
     unknown = sorted(set(values["standards"]) - set(STANDARDS))
     if unknown:
         raise SettingsError("[tool.testrex] standards has no %s; known: %s" % (unknown, ", ".join(STANDARDS)))
-    unknown = sorted(set(values["baseline"]) - set(LIBRARY_RULES))
+    unknown = sorted(set(values["baseline"]) - set(BASELINE_RULES))
     if unknown:
-        raise SettingsError("[tool.testrex] baseline has no rule %s; known: %s" % (unknown, ", ".join(LIBRARY_RULES)))
+        raise SettingsError("[tool.testrex] baseline has no rule %s; known: %s" % (unknown, ", ".join(BASELINE_RULES)))
     if min(values["max_function_lines"], values["max_nesting"], values["max_module_lines"]) < 1:
         raise SettingsError("[tool.testrex] max_function_lines, max_nesting and max_module_lines must be at least 1")
     if values["doc_max_lines"] < 0:
         raise SettingsError("[tool.testrex] doc_max_lines must be 0 (no limit) or more, not %d" % values["doc_max_lines"])
-    counts = [rule for rule, count in values["baseline"].items() if type(count) is not int or count < 0]
+    counts = [rule for rule, count in values["baseline"].items() if not is_exactly(count, int) or count < 0]
     if counts:
         raise SettingsError("[tool.testrex] baseline counts must be whole numbers of findings: %s" % sorted(counts))
 
 
 # Settings that name paths, made absolute against repo_root; an empty single
 # path stays empty, meaning the default
-PATH_SETTINGS = ("library_targets", "wrapper_modules", "command_paths", "js_sources", "lua_sources")
-FILE_SETTINGS = ("pylint_rcfile", "eslint_config", "luacheck_config")
+PATH_SETTINGS = (
+    "library_targets", "wrapper_modules", "command_paths", "js_sources", "lua_sources", "require_tests_for",
+    "tests_not_required")
+FILE_SETTINGS = ("pylint_rcfile", "eslint_config", "luacheck_config", "pylint_source_rcfile")
 
 
 # {setting: absolute path or paths} for the settings that name them

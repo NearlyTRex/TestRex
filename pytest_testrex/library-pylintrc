@@ -1,0 +1,31 @@
+# Pylint for library code; the meta suite runs it over library_targets and
+# holds the messages to the pylint-source baseline.
+#
+# Everything is enforced except rules other checks own: documentation is the
+# documented rule's, line length the formatter's, string formatting style the
+# repository's own, and size limits the long-functions and long-modules
+# standards'. A repository with its own conventions points [tool.testrex]
+# pylint_source_rcfile at its pylint config instead.
+
+[MAIN]
+jobs = 0
+
+[MESSAGES CONTROL]
+disable =
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    line-too-long,
+    consider-using-f-string,
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-instance-attributes,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-return-statements,
+    too-many-nested-blocks,
+    too-many-public-methods,
+    too-many-lines,
+    too-few-public-methods,
+    duplicate-code,

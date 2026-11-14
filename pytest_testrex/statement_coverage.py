@@ -104,7 +104,7 @@ def render_missed(ordered):
     """The statements no test ran, with their source, files least covered first."""
     lines = []
     for name, result in ordered:
-        missed = list(zip(result["missed"], result["missed_source"]))
+        missed = list(zip(result["missed"], result["missed_source"], strict = True))
         for (first, _), text in missed[:MISSED_LISTED]:
             lines.append(f"  {name}:{first}  {text}")
         if len(missed) > MISSED_LISTED:

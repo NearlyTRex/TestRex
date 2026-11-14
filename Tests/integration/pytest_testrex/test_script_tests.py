@@ -4,6 +4,8 @@ import textwrap
 # Third-party imports
 import pytest
 
+pytestmark = pytest.mark.integration
+
 ###########################################################
 # Standalone test files under their real runners
 ###########################################################

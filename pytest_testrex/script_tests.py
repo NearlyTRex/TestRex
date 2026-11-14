@@ -85,6 +85,10 @@ class ScriptTest(pytest.Item):
         super().__init__(**kwargs)
         self.runner = SCRIPT_LANGUAGES[language].runner
         self.add_marker(pytest.mark.requires_binary(self.runner[0]))
+        # Its runner is a program outside the process, so it is an integration test
+        marker = plugin.get_settings(self.config).integration_marker
+        if marker:
+            self.add_marker(marker)
 
     # Run the file, failing with the tests the runner reports failed
     def runtest(self):

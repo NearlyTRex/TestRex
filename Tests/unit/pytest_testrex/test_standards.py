@@ -234,3 +234,47 @@ def test_a_module_past_the_limit_is_one_finding_saying_how_to_split_it():
 def test_every_standard_has_a_check():
     assert set(standards.STANDARDS) == set(standards.CHECKS) | set(standards.SOURCE_CHECKS) | {
         "long-functions", "long-modules"}
+
+
+def test_an_except_whose_whole_body_is_pass_is_silent(parse_sample):
+    tree = parse_sample("""
+        try:
+            run()
+        except ValueError:
+            pass
+        try:
+            run()
+        except KeyError:
+            log()
+        try:
+            run()
+        except OSError:
+            "ignored"
+        """)
+
+    assert standards.silent_excepts(tree) == ["line 4", "line 12"]
+
+
+def test_a_suppression_that_names_nothing_is_found_in_a_comment_only():
+    source = "\n".join([
+        "import os  # noqa",
+        "import sys  # noqa: F401",
+        "import re  # NOQA:E402",
+        "value = 1  # type: ignore",
+        "other = 2  # type: ignore[assignment]",
+        "# pylint: skip-file",
+        "# pylint: disable=all",
+        "# pylint: disable=unused-import",
+        "text = '# noqa'",
+        "more = '# type: ignore'",
+        ""])
+
+    assert standards.blanket_suppressions(source) == [
+        "line 1: noqa without the codes it silences", "line 4: type: ignore without the codes it silences",
+        "line 6: pylint switched off for the file or for every message",
+        "line 7: pylint switched off for the file or for every message"]
+
+
+def test_the_suppression_standard_reads_the_source_not_the_tree():
+    assert standards.SOURCE_CHECKS["blanket-suppression"](None, "x = 1  # noqa\n") == [
+        "line 1: noqa without the codes it silences"]

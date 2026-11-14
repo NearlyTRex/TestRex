@@ -208,13 +208,13 @@ def count_at(ranges, offset, skip=None):
     """V8's count at an offset: that of the smallest range holding it, 0 outside them all.
 
     A range spanning exactly skip, a definition's (start, end), is passed over."""
-    best = None
+    best_span, best_count = None, 0
     for start, end, count in ranges:
         if not start <= offset < end or (start, end) == skip:
             continue
-        if best is None or end - start <= best[0]:
-            best = (end - start, count)
-    return best[1] if best else 0
+        if best_span is None or end - start <= best_span:
+            best_span, best_count = end - start, count
+    return best_count
 
 
 def is_run(processes, offset, skip=None):
@@ -311,11 +311,11 @@ def js_traced_env(request):
     return build
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(session):
     coverage_dir = getattr(session.config, "js_cov_dir", None)
     if coverage_dir:
         statement_coverage.finish(session, PREFIX, functools.partial(measure, coverage_dir=coverage_dir))
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
+def pytest_terminal_summary(terminalreporter, config):
     statement_coverage.summarize(terminalreporter, config, PREFIX, TITLE, "Script")

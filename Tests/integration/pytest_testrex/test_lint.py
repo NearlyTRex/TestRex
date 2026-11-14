@@ -4,6 +4,8 @@ import pytest
 # Local imports
 from pytest_testrex import lint
 
+pytestmark = pytest.mark.integration
+
 ###########################################################
 # eslint and luacheck, run for real with the shipped defaults
 ###########################################################

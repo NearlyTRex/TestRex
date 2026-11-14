@@ -160,3 +160,21 @@ def test_only_literal_subprocess_programs_are_collected(parse_sample):
 ])
 def test_a_file_declares_a_program_through_any_marker_or_the_interpreter(parse_sample, source, declares):
     assert requirements.declares_a_program(parse_sample(source), MARKERS) is declares
+
+
+def test_a_module_is_marked_by_a_pytestmark_alone_or_in_a_list(parse_sample):
+    assert requirements.module_marked(parse_sample("import pytest\npytestmark = pytest.mark.integration\n"), "integration")
+    assert requirements.module_marked(
+        parse_sample("import pytest\npytestmark = [pytest.mark.integration, pytest.mark.requires_binary('git')]\n"),
+        "integration")
+    assert requirements.module_marked(parse_sample("import pytest\npytestmark = pytest.mark.integration()\n"), "integration")
+
+
+def test_only_a_module_level_pytestmark_marks_a_module(parse_sample):
+    other_marker = parse_sample("import pytest\npytestmark = pytest.mark.slow\n")
+    on_a_test = parse_sample("import pytest\n@pytest.mark.integration\ndef test_x(): pass\n")
+    not_pytest = parse_sample("pytestmark = marks.integration\n")
+
+    assert not requirements.module_marked(other_marker, "integration")
+    assert not requirements.module_marked(on_a_test, "integration")
+    assert not requirements.module_marked(not_pytest, "integration")

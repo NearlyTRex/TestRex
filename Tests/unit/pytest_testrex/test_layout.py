@@ -117,3 +117,49 @@ def test_meta_directories_cover_what_is_under_them(tmp_path):
     assert layout.is_meta(os.path.join(tests_dir, "unit", "meta"), tests_dir, meta)
     assert layout.is_meta(os.path.join(tests_dir, "unit", "meta", "deep"), tests_dir, meta)
     assert not layout.is_meta(os.path.join(tests_dir, "unit", "metadata"), tests_dir, meta)
+
+
+def test_a_source_stem_drops_an_ordering_number_and_turns_dashes_into_underscores():
+    assert layout.source_stem("10-create-resources.py") == "create_resources"
+    assert layout.source_stem("setup.sh") == "setup"
+    assert layout.source_stem("2_post_upgrade.py") == "post_upgrade"
+
+
+def test_source_modules_are_found_under_targets_without_init_files_caches_or_tests(write_file, tmp_path):
+    write_file("pkg/__init__.py")
+    write_file("pkg/a.py")
+    write_file("pkg/sub/b.sh")
+    write_file("pkg/notes.txt")
+    write_file("pkg/__pycache__/c.py")
+    write_file("pkg/.hidden/d.py")
+    write_file("pkg/Tests/e.py")
+    write_file("tool.py")
+
+    found = layout.discover_source_modules(
+        str(tmp_path), [str(tmp_path / "pkg"), str(tmp_path / "tool.py"), str(tmp_path / "pkg" / "a.py")],
+        (".py", ".sh"), str(tmp_path / "pkg" / "Tests"))
+
+    assert found == [os.path.join("pkg", "a.py"), os.path.join("pkg", "sub", "b.sh"), "tool.py"]
+
+
+def test_non_source_directories_are_hidden_caches_virtualenvs_and_metadata():
+    assert all(layout.is_non_source_directory(name) for name in (".git", "__pycache__", "venv", "x.egg-info", "build"))
+    assert not layout.is_non_source_directory("pkg")
+
+
+def test_the_tests_for_a_source_file_may_sit_in_any_suite_as_a_module_or_a_package(tmp_path):
+    suites = [str(tmp_path / "unit"), str(tmp_path / "integration")]
+
+    found = layout.mirrored_tests(os.path.join("scripts", "10-do-thing.sh"), suites)
+
+    assert found == [
+        os.path.join(suites[0], "scripts", "test_do_thing.py"), os.path.join(suites[0], "scripts", "test_do_thing"),
+        os.path.join(suites[1], "scripts", "test_do_thing.py"), os.path.join(suites[1], "scripts", "test_do_thing")]
+
+
+def test_a_script_may_be_tested_by_a_standalone_test_file_named_by_a_pattern(tmp_path):
+    suite = str(tmp_path / "integration")
+
+    found = layout.mirrored_tests(os.path.join("lib", "greet.js"), [suite], ["*.test.js", "test-*-*.js"])
+
+    assert found == [os.path.join(suite, "lib", name) for name in ("test_greet.py", "test_greet", "greet.test.js")]

@@ -1,17 +1,19 @@
 # Imports
 import dataclasses
 import os
+import sys
 
 # Third-party imports
 import pytest
 
 # Local imports
-from pytest_testrex import hygiene, layout, library, lint, quality, requirements, signatures, standards
+from pytest_testrex import (
+    coverage_policy, hygiene, layout, library, lint, practices, quality, requirements, signatures, standards)
 from pytest_testrex.discovery import (
     SCRIPT_LANGUAGES, checker_names, defines_tests, discover_python_files, discover_script_tests, parsed,
     parsed_script, script_language)
 from pytest_testrex.parsers import ParserMissing
-from pytest_testrex.settings import LIBRARY_RULES
+from pytest_testrex.settings import LIBRARY_RULES, Settings
 from pytest_testrex.statement_coverage import find_sources
 
 ###########################################################
@@ -32,14 +34,17 @@ from pytest_testrex.statement_coverage import find_sources
 # What the meta suite reads, found once from the settings
 @dataclasses.dataclass(frozen = True)
 class Survey:
-    settings: object
+    settings: Settings
     test_files: list
     all_files: list
     integration_files: list
+    unit_files: list
+    stray_files: list
     split_packages: list
     mirror_directories: list
     library_files: list
     script_test_files: list
+    source_modules: list
 
     # A path relative to the tests directory, as it appears in test ids
     def relative(self, path):
@@ -50,9 +55,11 @@ class Survey:
         found = {}
         for argument, values in [
                 ("test_file", self.test_files), ("python_file", self.all_files),
-                ("integration_file", self.integration_files), ("split_package", self.split_packages),
-                ("mirror_directory", self.mirror_directories), ("script_test_file", self.script_test_files)]:
+                ("integration_file", self.integration_files), ("unit_file", self.unit_files),
+                ("split_package", self.split_packages), ("mirror_directory", self.mirror_directories),
+                ("script_test_file", self.script_test_files)]:
             found[argument] = (values, [self.relative(path) for path in values])
+        found["source_module"] = (self.source_modules, list(self.source_modules))
         found["library_rule"] = (list(LIBRARY_RULES), list(LIBRARY_RULES))
         return found
 
@@ -71,6 +78,11 @@ class Survey:
         tests = [path for path in self.script_test_files if self.language_of(path) == language]
         return tests, find_sources(sources, SCRIPT_LANGUAGES[language].extensions)
 
+    # The standalone test patterns of the languages a source file is written in
+    def script_patterns_for(self, source):
+        return [pattern for language, patterns in self.settings.script_test_patterns.items()
+                if source.endswith(SCRIPT_LANGUAGES[language].extensions) for pattern in patterns]
+
     # (syntax, tree) of a standalone test file, skipping the test when its
     # language's grammar is not installed
     def read_script(self, path):
@@ -78,24 +90,32 @@ class Survey:
         try:
             return SCRIPT_LANGUAGES[language], parsed_script(path, language)
         except ParserMissing as error:
-            pytest.skip(str(error))
+            raise pytest.skip.Exception(str(error)) from error
 
 
 # Find every file and directory the rules are parametrized over
 def survey(settings):
     ignored = settings.ignored_dirs
     test_files = discover_python_files(settings.suite_dirs, True, ignored)
+    integration_files = discover_python_files(settings.integration_dirs, True, ignored)
     script_patterns = settings.script_test_patterns
     return Survey(
         settings = settings,
         test_files = test_files,
         all_files = discover_python_files(settings.suite_dirs, False, ignored),
-        integration_files = discover_python_files(settings.integration_dirs, True, ignored),
+        integration_files = integration_files,
+        unit_files = [path for path in test_files if path not in integration_files
+                      and not layout.is_meta(os.path.dirname(path), settings.tests_dir, settings.meta_dirs)],
+        stray_files = sorted(set(discover_python_files((settings.tests_dir,), True, ignored)) - set(test_files)),
         split_packages = layout.discover_split_packages(settings.suite_dirs, ignored),
         mirror_directories = layout.discover_mirror_directories(
             settings.suite_dirs, ignored, [pattern for patterns in script_patterns.values() for pattern in patterns]),
         library_files = library.discover_library_files(settings.library_targets),
-        script_test_files = discover_script_tests(settings.suite_dirs, script_patterns, ignored))
+        script_test_files = discover_script_tests(settings.suite_dirs, script_patterns, ignored),
+        source_modules = [
+            path for path in layout.discover_source_modules(
+                settings.repo_root, settings.tested_sources, settings.source_extensions, settings.tests_dir)
+            if os.path.join(settings.repo_root, path) not in settings.tests_not_required])
 
 
 class TestRex:
@@ -113,6 +133,13 @@ class TestRex:
         assert len(testrex_survey.every_test_file) >= minimum, (
             "found %d test files under %s, fewer than min_test_files (%d)" % (
                 len(testrex_survey.every_test_file), testrex_survey.settings.tests_dir, minimum))
+
+    def test_every_test_file_lives_in_a_suite(self, testrex_survey):
+        # pytest collects a test file anywhere under the tests directory, but
+        # none of these rules read one outside the suites
+        stray = [testrex_survey.relative(path) for path in testrex_survey.stray_files]
+
+        assert not stray, f"outside the suites {list(testrex_survey.settings.suites)}: {stray}"
 
     def test_every_suite_was_discovered(self, testrex_survey):
         empty = [
@@ -162,6 +189,40 @@ class TestRex:
         length = hygiene.line_count(test_file)
 
         assert length <= testrex_survey.settings.max_lines, f"{length} lines; split it into a package of the same name"
+
+    def test_process_state_is_not_changed_directly(self, test_file):
+        # monkeypatch undoes its changes at teardown; a direct change to
+        # os.environ, the working directory, sys.path and the like lasts for
+        # the rest of the process, so every later test silently inherits it.
+        found = practices.process_mutations(parsed(test_file))
+
+        assert not found, f"changes the process directly instead of through monkeypatch or a fixture: {found}"
+
+    def test_pytest_raises_names_the_error_it_expects(self, test_file):
+        # pytest.raises(Exception) passes for any error at all, a typo in the
+        # test included; name the error, or match its message.
+        found = practices.broad_raises(parsed(test_file))
+
+        assert not found, f"pytest.raises(Exception) without a match, at {found}"
+
+    def test_a_raises_block_holds_only_the_call_that_raises(self, test_file):
+        # With more in the block, a line other than the one under test can
+        # raise the expected error and the test passes.
+        found = practices.crowded_raises(parsed(test_file))
+
+        assert not found, f"pytest.raises blocks with more than one statement, at {found}"
+
+    def test_a_skip_or_xfail_says_why(self, test_file):
+        # A skip nobody can explain is a test nobody dares delete or fix.
+        found = practices.unexplained_skips(parsed(test_file))
+
+        assert not found, f"skip, xfail or skipif without a reason, at {found}"
+
+    def test_a_suppression_names_what_it_suppresses(self, python_file):
+        # A bare noqa or type: ignore also hides the next problem to appear on the line.
+        found = standards.blanket_suppressions(library.read_source(python_file))
+
+        assert not found, f"suppressions that silence more than they name: {found}"
 
     def test_every_test_file_holds_at_least_one_test(self, test_file):
         assert defines_tests(parsed(test_file)), "no tests in a file named like one"
@@ -320,6 +381,25 @@ class TestRex:
         assert requirements.declares_a_program(parsed(integration_file), markers), (
             "declares no program; mark what it runs, or move it to a unit suite if it runs none")
 
+    def test_an_integration_file_carries_the_integration_marker(self, integration_file, testrex_survey):
+        # `pytest -m "not integration"` is the fast run; an unmarked integration
+        # file would sneak slow tests into it
+        marker = testrex_survey.settings.integration_marker
+        if not marker:
+            pytest.skip("integration_marker is empty in [tool.testrex]")
+
+        assert requirements.module_marked(parsed(integration_file), marker), (
+            f"add pytestmark = pytest.mark.{marker} at module level")
+
+    def test_a_unit_file_is_not_marked_integration(self, unit_file, testrex_survey):
+        # A unit file that carries the marker is left out of the fast run
+        marker = testrex_survey.settings.integration_marker
+        if not marker:
+            pytest.skip("integration_marker is empty in [tool.testrex]")
+
+        assert not requirements.module_marked(parsed(unit_file), marker), (
+            f"is marked {marker} but is not in an integration suite; move it or drop the marker")
+
     def test_a_script_test_lives_in_an_integration_suite(self, script_test_file, testrex_survey):
         # Its runner is a program outside the process, so it is an integration test.
         settings = testrex_survey.settings
@@ -328,6 +408,34 @@ class TestRex:
         assert any(script_test_file.startswith(suite + os.sep) for suite in settings.integration_dirs), (
             f"runs under {runner}, a program outside the process; move it to an integration suite: "
             f"{list(settings.integration_suites)}")
+
+    ###########################################################
+    # Coverage
+    #
+    # Every module has tests, and the figure is earned, not configured.
+    ###########################################################
+
+    def test_every_source_module_has_tests(self, source_module, testrex_survey):
+        candidates = layout.mirrored_tests(
+            source_module, testrex_survey.settings.suite_dirs, testrex_survey.script_patterns_for(source_module))
+
+        assert any(os.path.exists(path) for path in candidates), "no tests; expected one of " + ", ".join(
+            os.path.relpath(path, testrex_survey.settings.repo_root) for path in candidates)
+
+    def test_coverage_is_not_gamed_with_pragmas_or_exclusions(self, testrex_survey):
+        settings = testrex_survey.settings
+        if not settings.check_coverage_config:
+            pytest.skip("check_coverage_config is off in [tool.testrex]")
+        files = coverage_policy.measured_files(settings.repo_root, settings.tests_dir)
+        omit, exclude = coverage_policy.declared_exclusions(settings.repo_root)
+        problems = {
+            "no-cover pragmas": coverage_policy.pragma_lines(files, settings.repo_root),
+            "omit patterns": coverage_policy.disallowed(omit, settings.coverage_omit_allowed),
+            "exclusion patterns": coverage_policy.disallowed(exclude, settings.coverage_exclude_allowed),
+        }
+        found = {kind: items for kind, items in problems.items() if items}
+
+        assert not found, f"coverage is raised without a test: {found}"
 
     ###########################################################
     # Override signatures
@@ -363,9 +471,10 @@ class TestRex:
     # Pylint
     ###########################################################
 
+    # With the import path the tests run under, so what a test imports resolves for pylint too
     def test_pylint_is_clean_over_all_tests(self, testrex_survey):
         settings = testrex_survey.settings
-        roots = lint.import_roots(settings.tests_dir, testrex_survey.all_files)
+        roots = lint.import_roots(settings.tests_dir, testrex_survey.all_files) + [path for path in sys.path if path]
         result = lint.run_pylint(
             settings.rcfile, settings.repo_root, roots, *lint.pylint_targets(settings.tests_dir, testrex_survey.all_files))
 
@@ -380,6 +489,38 @@ class TestRex:
             *lint.only_rules(settings.library_rules), *settings.library_targets)
 
         assert result.returncode == 0, result.stdout + result.stderr
+
+    # The library under the repository's own pylint config, with the import path the
+    # tests run under, so imports a conftest made resolvable still resolve
+    def test_the_library_is_pylint_clean(self, testrex_survey):
+        settings = testrex_survey.settings
+        if not settings.library_targets:
+            pytest.skip("no library_targets in [tool.testrex]")
+        if not settings.pylint_source:
+            pytest.skip("pylint_source is off in [tool.testrex]")
+        roots = [settings.tests_dir] + [path for path in sys.path if path]
+        result = lint.run_pylint(
+            settings.source_rcfile, settings.repo_root, roots, "--recursive=y", *settings.library_targets)
+        assert not result.returncode & lint.UNFINISHED, result.stdout + result.stderr
+        problem = library.ratchet(
+            "pylint-source", lint.pylint_messages(result.stdout), settings.baseline.get("pylint-source", 0))
+
+        assert problem is None, problem
+
+    ###########################################################
+    # Ruff
+    ###########################################################
+
+    def test_ruff_is_clean(self, testrex_survey):
+        settings = testrex_survey.settings
+        if not settings.ruff:
+            pytest.skip("ruff is off in [tool.testrex]")
+        if lint.ruff_command() is None:
+            pytest.skip("ruff not installed")
+        failures = [result.stdout + result.stderr
+                    for result in lint.run_ruff(settings.repo_root, settings.ruff_format) if result.returncode]
+
+        assert not failures, "\n".join(failures)
 
     ###########################################################
     # eslint and luacheck

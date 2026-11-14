@@ -46,6 +46,14 @@ def module_marks(tree):
         and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)]
 
 
+# Whether a module sets pytestmark to pytest.mark.<marker>, alone or in a list
+def module_marked(tree, marker):
+    return any(
+        isinstance(node, ast.Attribute) and node.attr == marker
+        and isinstance(node.value, ast.Attribute) and node.value.attr == "mark"
+        for value in module_marks(tree) for node in ast.walk(value))
+
+
 # Every program a module declares with a marker, at module, class or test level
 def declared_anywhere(tree, marker = "requires_binary"):
     decorators = [

@@ -102,8 +102,8 @@ def test_configure_is_inert_when_disabled_or_on_a_worker(tmp_path, monkeypatch):
         shell_cov.pytest_configure(config)
         assert config.shell_cov_scratch is None
         shell_cov.pytest_unconfigure(config)
-        shell_cov.pytest_sessionfinish(SimpleNamespace(config=config), 0)
-        shell_cov.pytest_terminal_summary(None, 0, config)
+        shell_cov.pytest_sessionfinish(SimpleNamespace(config=config))
+        shell_cov.pytest_terminal_summary(None, config)
     assert "BASH_ENV" not in os.environ
 
 
@@ -156,19 +156,19 @@ def test_session_finish_measures_gates_and_reports(tmp_path, monkeypatch):
     shell_cov.pytest_configure(config)
     try:
         session = SimpleNamespace(config=config, exitstatus=0)
-        shell_cov.pytest_sessionfinish(session, 0)
+        shell_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         failed = SimpleNamespace(config=config, exitstatus=pytest.ExitCode.TESTS_FAILED)
-        shell_cov.pytest_sessionfinish(failed, 0)
+        shell_cov.pytest_sessionfinish(failed)
         assert failed.exitstatus == pytest.ExitCode.TESTS_FAILED
         config.shell_cov_results = {}
         config.getoption = make_config(tmp_path, floor=0.0).getoption
         passing = SimpleNamespace(config=config, exitstatus=0)
-        shell_cov.pytest_sessionfinish(passing, 0)
+        shell_cov.pytest_sessionfinish(passing)
         assert passing.exitstatus == 0
         lines = []
         reporter = SimpleNamespace(write_sep=lambda *a, **k: lines.append(a[1]), write_line=lines.append)
-        shell_cov.pytest_terminal_summary(reporter, 0, config)
+        shell_cov.pytest_terminal_summary(reporter, config)
         assert lines[0] == "shell coverage" and "Total:" in lines[1]
     finally:
         shell_cov.pytest_unconfigure(config)
@@ -314,11 +314,11 @@ def test_session_finish_measures_branches_when_asked(tmp_path):
         trace_dir = os.environ["SHELL_COV_TRACE_DIR"]
         with open(os.path.join(trace_dir, "1.trace"), "w", encoding="utf-8") as handle:
             handle.write(trace_line(tmp_path, "s.sh", 1).replace(" echo", " true"))
-        shell_cov.pytest_sessionfinish(SimpleNamespace(config=config, exitstatus=0), 0)
+        shell_cov.pytest_sessionfinish(SimpleNamespace(config=config, exitstatus=0))
         assert config.shell_cov_results["s.sh"]["statements"] == 2
         lines = []
         reporter = SimpleNamespace(write_sep=lambda *a, **k: None, write_line=lines.append)
-        shell_cov.pytest_terminal_summary(reporter, 0, config)
+        shell_cov.pytest_terminal_summary(reporter, config)
         assert "branches" in lines[0]
     finally:
         shell_cov.pytest_unconfigure(config)
@@ -370,6 +370,9 @@ def statements(source):
     ("if printf x | f \\\n  >/dev/null; then\n  :\nfi\n", [(1, 2), (3, 3)]),
     # a handler group after a continuation is its own statement, not part of the command
     ('token=$(x) \\\n  || { err "bad"; return 2; }\n', [(1, 1), (2, 2)]),
+    # a chain whose operands are compound holds no simple run to close before each
+    ("{\n  a\n} || b\n", [(2, 2), (3, 3)]),
+    ("if x; then\n  :\nfi && (\n  y\n)\n", [(1, 1), (2, 2), (4, 4)]),
     # a # inside quotes is text, not a comment
     ('echo "value # not a comment"\necho next\n', [(1, 1), (2, 2)]),
     ("echo $'ansi # not'\necho it\\'s\necho next\n", [(1, 1), (2, 2), (3, 3)]),
@@ -497,15 +500,15 @@ def test_a_script_that_cannot_be_parsed_fails_the_run_and_says_which(tmp_path):
     shell_cov.pytest_configure(config)
     try:
         session = SimpleNamespace(config=config, exitstatus=0)
-        shell_cov.pytest_sessionfinish(session, 0)
+        shell_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         assert config.shell_cov_error.startswith("bad.sh: tree-sitter-bash cannot parse it")
         already = SimpleNamespace(config=config, exitstatus=pytest.ExitCode.INTERRUPTED)
-        shell_cov.pytest_sessionfinish(already, 0)
+        shell_cov.pytest_sessionfinish(already)
         assert already.exitstatus == pytest.ExitCode.INTERRUPTED
         lines = []
         reporter = SimpleNamespace(write_sep=lambda *a, **k: lines.append(a[1]), write_line=lines.append)
-        shell_cov.pytest_terminal_summary(reporter, 0, config)
+        shell_cov.pytest_terminal_summary(reporter, config)
         assert lines[0] == "shell coverage"
         assert lines[1].startswith("Could not measure: bad.sh:")
         assert "--shell-cov-exclude" in lines[2] and "vendored" in lines[2]
@@ -547,7 +550,7 @@ def test_session_finish_honours_the_exclude_option(tmp_path):
     shell_cov.pytest_configure(config)
     try:
         session = SimpleNamespace(config=config, exitstatus=0)
-        shell_cov.pytest_sessionfinish(session, 0)
+        shell_cov.pytest_sessionfinish(session)
         assert session.exitstatus == 0
         assert list(config.shell_cov_results) == ["good.sh"]
     finally:

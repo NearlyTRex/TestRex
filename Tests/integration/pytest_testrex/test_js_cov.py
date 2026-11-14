@@ -8,7 +8,7 @@ import pytest
 
 from pytest_testrex import js_cov
 
-pytestmark = pytest.mark.requires_binary("node")
+pytestmark = [pytest.mark.integration, pytest.mark.requires_binary("node")]
 
 
 def write(directory, name, text):

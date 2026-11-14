@@ -29,6 +29,9 @@ SETTLE_INI = "process_guard_settle_seconds"
 # Every way Python starts a process; os.spawn*, pty and multiprocessing go through os.fork
 LAUNCH_FUNCTIONS = ["fork", "forkpty", "posix_spawn", "posix_spawnp", "system"]
 
+# The Popen method every subprocess launch goes through
+POPEN_LAUNCH = "_execute_child"
+
 # The tests running now, innermost last (pytester nests a session inside a test)
 _watches = []
 
@@ -116,8 +119,8 @@ def watching(launch):
 def watch_launches():
     if _unwatched:
         return False
-    _unwatched["_execute_child"] = subprocess.Popen._execute_child
-    subprocess.Popen._execute_child = watching(subprocess.Popen._execute_child)
+    _unwatched[POPEN_LAUNCH] = getattr(subprocess.Popen, POPEN_LAUNCH)
+    setattr(subprocess.Popen, POPEN_LAUNCH, watching(_unwatched[POPEN_LAUNCH]))
     for name in LAUNCH_FUNCTIONS:
         if hasattr(os, name):
             _unwatched[name] = getattr(os, name)
@@ -127,8 +130,8 @@ def watch_launches():
 
 # Put the launch functions back as they were
 def unwatch_launches():
-    if "_execute_child" in _unwatched:
-        subprocess.Popen._execute_child = _unwatched.pop("_execute_child")
+    if POPEN_LAUNCH in _unwatched:
+        setattr(subprocess.Popen, POPEN_LAUNCH, _unwatched.pop(POPEN_LAUNCH))
     for name, original in _unwatched.items():
         setattr(os, name, original)
     _unwatched.clear()

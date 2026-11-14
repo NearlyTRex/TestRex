@@ -268,12 +268,12 @@ class ShellSandbox:
         lines.append(f"exec env -i {assignments} {' '.join(quote(part) for part in command)}")
         return "\n".join(lines) + "\n"
 
-    def run(self, script, *args, env=None, input=None, timeout=60):
+    def run(self, script, *args, env=None, stdin=None, timeout=60):
         """Run a script from the repository, by its path relative to the root."""
         return self.run_command(["bash", os.path.join(self.repo_root, script)] + [str(arg) for arg in args],
-                                env=env, input=input, timeout=timeout)
+                                env=env, stdin=stdin, timeout=timeout)
 
-    def run_command(self, command, env=None, input=None, timeout=60):
+    def run_command(self, command, env=None, stdin=None, timeout=60):
         """Run a command line inside the sandbox."""
         error = check_namespace_support()
         if error:
@@ -297,7 +297,7 @@ class ShellSandbox:
             handle.write(self.build_launcher(command, full_env))
         return subprocess.run(
             ["unshare", "--user", "--map-root-user", "--mount", "--net", "--fork", "/bin/bash", launcher],
-            input=input, capture_output=True, text=True, timeout=timeout, check=False,
+            input=stdin, capture_output=True, text=True, timeout=timeout, check=False,
             env={"PATH": "/usr/bin:/bin"})
 
     ###########################################################
@@ -335,8 +335,8 @@ def pytest_addoption(parser):
                     help="fail, rather than skip, shell_sandbox tests when user namespaces are unavailable")
 
 
-@pytest.fixture
-def shell_sandbox_options():
+@pytest.fixture(name="shell_sandbox_options")
+def fixture_shell_sandbox_options():
     """Overridable ShellSandbox options (see the module docstring)."""
     return {}
 

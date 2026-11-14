@@ -411,8 +411,8 @@ def test_configure_is_inert_when_disabled_or_on_a_worker(tmp_path, clean_environ
         lua_cov.pytest_configure(config)
         assert config.lua_cov_scratch is None
         lua_cov.pytest_unconfigure(config)
-        lua_cov.pytest_sessionfinish(SimpleNamespace(config=config), 0)
-        lua_cov.pytest_terminal_summary(None, 0, config)
+        lua_cov.pytest_sessionfinish(SimpleNamespace(config=config))
+        lua_cov.pytest_terminal_summary(None, config)
     assert "LUA_INIT" not in os.environ
 
 
@@ -459,10 +459,10 @@ def test_session_finish_measures_gates_and_reports(tmp_path, clean_environment):
         with open(os.path.join(trace_dir, "1.trace"), "w", encoding="utf-8") as handle:
             handle.write(f"1\t{tmp_path}/s.lua\n")
         session = SimpleNamespace(config=config, exitstatus=0)
-        lua_cov.pytest_sessionfinish(session, 0)
+        lua_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         lines, reporter = reporter_lines()
-        lua_cov.pytest_terminal_summary(reporter, 0, config)
+        lua_cov.pytest_terminal_summary(reporter, config)
         assert lines[0] == "lua coverage"
         assert "s.lua:2  y = 2" in lines[1] and "Floor: 100.0% (NOT MET)" in lines[1]
     finally:
@@ -475,10 +475,10 @@ def test_session_finish_reports_a_source_it_cannot_measure(tmp_path, clean_envir
     lua_cov.pytest_configure(config)
     try:
         session = SimpleNamespace(config=config, exitstatus=0)
-        lua_cov.pytest_sessionfinish(session, 0)
+        lua_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         lines, reporter = reporter_lines()
-        lua_cov.pytest_terminal_summary(reporter, 0, config)
+        lua_cov.pytest_terminal_summary(reporter, config)
         assert lines[1].startswith("Could not measure: bad.lua: tree-sitter-lua cannot parse it")
         assert "--lua-cov-exclude" in lines[2]
     finally:
