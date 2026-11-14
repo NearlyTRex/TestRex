@@ -9,6 +9,8 @@ import pytest
 
 from pytest_testrex import lua_cov
 
+pytestmark = pytest.mark.integration
+
 # Each interpreter installed is held to the hook; the rest skip
 LUAS = [
     pytest.param("lua5.1", marks=pytest.mark.requires_binary("lua5.1")),

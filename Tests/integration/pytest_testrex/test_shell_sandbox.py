@@ -12,7 +12,7 @@ from fixture_helpers import unwrap
 from pytest_testrex import shell_sandbox as sandbox_mod
 
 # Even the tests that only build a sandbox run its stubs, which are bash scripts
-pytestmark = pytest.mark.requires_binary("bash")
+pytestmark = [pytest.mark.integration, pytest.mark.requires_binary("bash")]
 
 
 @pytest.fixture
@@ -205,7 +205,7 @@ def test_run_builds_launcher_and_calls_unshare(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     sb = sandbox_mod.ShellSandbox(tmp_path / "sb", tmp_path / "repo", trace_dir=str(tmp_path / "t"),
                                   hook_file=str(tmp_path / "t" / "hook.sh"))
-    result = sb.run("scripts/x.sh", 1, env={"EXTRA": "1"}, input="in", timeout=5)
+    result = sb.run("scripts/x.sh", 1, env={"EXTRA": "1"}, stdin="in", timeout=5)
     assert result.stdout == "ok"
     assert seen["argv"][:6] == ["unshare", "--user", "--map-root-user", "--mount", "--net", "--fork"]
     assert seen["kwargs"]["input"] == "in" and seen["kwargs"]["timeout"] == 5
@@ -229,7 +229,7 @@ def test_plugin_option_and_fixtures(tmp_path, monkeypatch):
     group = type("G", (), {"addoption": lambda self, *a, **k: added.append(a[0])})()
     sandbox_mod.pytest_addoption(type("P", (), {"getgroup": lambda self, name: group})())
     assert added == ["--shell-sandbox-required"]
-    assert unwrap(sandbox_mod.shell_sandbox_options)() == {}
+    assert unwrap(sandbox_mod.fixture_shell_sandbox_options)() == {}
 
     request = type("R", (), {"config": type("C", (), {
         "rootpath": tmp_path, "getoption": lambda self, name: True})()})()

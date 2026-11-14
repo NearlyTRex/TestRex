@@ -26,13 +26,13 @@ def get_parser(language):
     module_name, extra = GRAMMARS[language]
     try:
         grammar = importlib.import_module(module_name)
-        from tree_sitter import Language, Parser
+        tree_sitter = importlib.import_module("tree_sitter")
     except ImportError as error:
         raise ParserMissing(
             f"reading {language} needs {module_name.replace('_', '-')}; install it with: "
             f"pip install \"pytest-testrex[{extra}]\", or add tree-sitter and "
             f"{module_name.replace('_', '-')} to the hash-locked test requirements") from error
-    return Parser(Language(grammar.language()))
+    return tree_sitter.Parser(tree_sitter.Language(grammar.language()))
 
 
 def first_error(node):

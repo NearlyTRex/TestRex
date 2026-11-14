@@ -15,7 +15,7 @@ CORPUS = sorted((Path(__file__).resolve().parent / "shell_corpus").glob("*.corpu
 
 
 # shfmt-py, in the dev requirements, puts it on PATH
-pytestmark = pytest.mark.requires_binary("shfmt")
+pytestmark = [pytest.mark.integration, pytest.mark.requires_binary("shfmt")]
 
 
 @pytest.fixture(scope="module")

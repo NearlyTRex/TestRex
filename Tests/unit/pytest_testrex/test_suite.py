@@ -1,4 +1,5 @@
 # Imports
+import glob
 import inspect
 import os
 import subprocess
@@ -18,8 +19,8 @@ from pytest_testrex.settings import LIBRARY_RULES
 # A sample repository is written with pytester and the suite run over it the
 # way a repository runs it. A clean one passes every rule; a broken one fails
 # every rule at least once, so no rule is wired up in a way that cannot fail.
-# eslint and luacheck are faked here, failing a file that holds UNUSED; the
-# integration suite runs them for real.
+# eslint, luacheck and ruff are faked here, failing a file that holds UNUSED;
+# the integration suite runs eslint and luacheck for real.
 ###########################################################
 
 META = "from pytest_testrex import suite\n\n\nclass TestRex(suite.TestRex):\n    pass\n"
@@ -35,11 +36,12 @@ CLEAN_SETTINGS = """
     wrappers = { "json.dumps" = "pkg.serialization.dumps" }
     wrapper_modules = ["pkg/serialization.py"]
     command_paths = ["pkg/cli.py"]
+    require_tests_for = ["lib"]
     js_sources = ["lib"]
     lua_sources = ["lib/greet.lua"]
     standards = [
-        "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-        "no-narration", "commented-out-code", "long-functions", "long-modules",
+        "no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
+        "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
     ]
     """
 
@@ -121,6 +123,26 @@ CLEAN_FILES = {
                 with pytest.raises(TypeError):
                     double(None)
         """,
+    "Tests/unit/pkg/test_serialization.py": """
+        from pkg.serialization import dumps
+
+
+        def test_keys_are_sorted():
+            assert dumps({"b": 1, "a": 2}) == '{"a": 2, "b": 1}'
+        """,
+    "Tests/unit/pkg/test_cli.py": """
+        import pytest
+
+        from pkg.cli import main
+
+
+        def test_main_exits_with_success(capsys):
+            with pytest.raises(SystemExit) as exited:
+                main(["x"])
+
+            assert exited.value.code == 0
+            assert capsys.readouterr().out == "['x']\\n"
+        """,
     "Tests/unit/pkg/test_big/conftest.py": "",
     "Tests/unit/pkg/test_big/test_area.py": "def test_area():\n    assert len('ab') == 2\n",
     "Tests/integration/pkg/test_mod.py": """
@@ -128,7 +150,7 @@ CLEAN_FILES = {
 
         import pytest
 
-        pytestmark = pytest.mark.requires_binary("python3")
+        pytestmark = [pytest.mark.integration, pytest.mark.requires_binary("python3")]
 
 
         def test_runs():
@@ -148,12 +170,13 @@ BROKEN_SETTINGS = """
     max_module_lines = 20
     wrappers = { "json.dumps" = "pkg.serialization.dumps" }
     standards = [
-        "no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-        "no-narration", "commented-out-code", "long-functions", "long-modules",
+        "no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
+        "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
     ]
     """
 
 BROKEN_MOD_TESTS = """
+    import os
     import subprocess
     import shutil
 
@@ -233,6 +256,29 @@ BROKEN_MOD_TESTS = """
         assert shell_sandbox
 
 
+    def leak():
+        os.environ["LEAK"] = "1"
+
+
+    def test_broad():
+        with pytest.raises(Exception):
+            shared(None)
+
+
+    def test_crowded():
+        with pytest.raises(TypeError):
+            value = None
+            shared(value)
+
+
+    @pytest.mark.skip
+    def test_skipped():
+        assert shared(1) == 2
+
+
+    UNUSED = 1  # noqa
+
+
     class TestDuplicate:
         def test_x(self):
             assert shared(1) == 2
@@ -248,7 +294,7 @@ BROKEN_FILES = {
     "pkg/__init__.py": "",
     "pkg/mod.py": """
         import json
-        import os
+        import os  # noqa
         import sys
 
         HOME = os.environ["HOME"]
@@ -300,9 +346,23 @@ BROKEN_FILES = {
                         if c:
                             pass
         """,
+    "pkg/orphan.py": "VALUE = 1  # pragma: no cover\n",
+    "Tests/test_stray.py": "def test_stray():\n    assert len('a') == 1\n",
     "Tests/unit/meta/test_rex.py": META,
     "Tests/unit/pkg/test_mod.py": BROKEN_MOD_TESTS,
-    "Tests/unit/pkg/test_other.py": "def shared(value):\n    return value + 1\n\n\ndef test_other():\n    assert shared(1) == 2\n",
+    "Tests/unit/pkg/test_other.py": """
+        import pytest
+
+        pytestmark = pytest.mark.integration
+
+
+        def shared(value):
+            return value + 1
+
+
+        def test_other():
+            assert shared(1) == 2
+        """,
     "Tests/unit/pkg/test_empty.py": "VALUE = 1\n",
     "Tests/unit/pkg/test_split.py": "def test_split():\n    assert len('a') == 1\n",
     "Tests/unit/pkg/test_split/cases.py": "def test_hidden():\n    assert len('a') == 1\n",
@@ -325,10 +385,17 @@ def fake_lint(files):
     return subprocess.CompletedProcess(["lint"], 1 if dirty else 0, "\n".join(dirty), "")
 
 
-# eslint and luacheck installed and faked, for a run in this process
+# Stands in for a ruff run over a repository: fails when one of its Python files holds UNUSED
+def fake_ruff(repo_root, check_format):
+    return [fake_lint(glob.glob(os.path.join(repo_root, "**", "*.py"), recursive = True))]
+
+
+# eslint, luacheck and ruff installed and faked, for a run in this process
 @pytest.fixture
 def linters(monkeypatch):
     monkeypatch.setattr(lint, "installed", lambda program: True)
+    monkeypatch.setattr(lint, "ruff_command", lambda: ["ruff"])
+    monkeypatch.setattr(lint, "run_ruff", fake_ruff)
     monkeypatch.setattr(lint, "run_eslint", lambda repo_root, configured, files: fake_lint(files))
     monkeypatch.setattr(lint, "run_luacheck", lambda repo_root, configured, tests, sources: [fake_lint(tests), fake_lint(sources)])
 
@@ -393,14 +460,51 @@ def test_unconfigured_checks_skip(pytester):
     assert "Skipped: no library_targets in [tool.testrex]" in reasons
 
 
-def test_script_rules_skip_without_their_linters(pytester, monkeypatch):
-    write_repository(pytester, CLEAN_SETTINGS, CLEAN_FILES)
-    monkeypatch.setattr(lint, "installed", lambda program: False)
+def test_rules_turned_off_skip(pytester):
+    write_repository(pytester, """
+        [tool.testrex]
+        library_targets = ["pkg"]
+        integration_marker = ""
+        pylint_source = false
+        ruff = false
+        check_coverage_config = false
+        """, {
+            "pkg/__init__.py": "",
+            "lib/greet.js": "exports.greet = () => 1;\n",
+            "Tests/integration/lib/greet.test.js": "test('greets', () => { assert.ok(1); });\n",
+            "Tests/integration/pkg/test_run.py": "def test_run():\n    assert len('a') == 1\n",
+            "Tests/unit/pkg/test_run.py": "def test_run():\n    assert len('a') == 1\n",
+            "Tests/unit/meta/test_rex.py": META})
 
     _, skipped, _ = run_the_suite(pytester).listoutcomes()
     reasons = {report.longrepr[2] for report in skipped}
 
-    assert reasons == {"Skipped: eslint not installed", "Skipped: luacheck not installed"}
+    assert {
+        "Skipped: integration_marker is empty in [tool.testrex]", "Skipped: pylint_source is off in [tool.testrex]",
+        "Skipped: ruff is off in [tool.testrex]", "Skipped: check_coverage_config is off in [tool.testrex]"} <= reasons
+
+
+def test_a_script_test_carries_the_integration_marker_only_when_one_is_set(pytester):
+    files = {"Tests/integration/lib/greet.test.js": "test('greets', () => { assert.ok(1); });\n"}
+    write_repository(pytester, "[tool.testrex]\n", files)
+    marked = pytester.inline_run("--collect-only", "-p", "no:cacheprovider", "-m", "integration")
+    write_repository(pytester, "[tool.testrex]\nintegration_marker = ''\n", files)
+    unmarked = pytester.inline_run("--collect-only", "-p", "no:cacheprovider", "-m", "integration")
+
+    assert [item.path.name for item in marked.getcalls("pytest_collection_finish")[0].session.items] == ["greet.test.js"]
+    assert unmarked.getcalls("pytest_collection_finish")[0].session.items == []
+
+
+def test_script_rules_skip_without_their_linters(pytester, monkeypatch):
+    write_repository(pytester, CLEAN_SETTINGS, CLEAN_FILES)
+    monkeypatch.setattr(lint, "installed", lambda program: False)
+    monkeypatch.setattr(lint, "ruff_command", lambda: None)
+
+    _, skipped, _ = run_the_suite(pytester).listoutcomes()
+    reasons = {report.longrepr[2] for report in skipped}
+
+    assert reasons == {
+        "Skipped: eslint not installed", "Skipped: luacheck not installed", "Skipped: ruff not installed"}
 
 
 @pytest.mark.usefixtures("linters")
@@ -421,6 +525,7 @@ def test_script_rules_skip_without_the_grammar(pytester, monkeypatch):
 
 
 @pytest.mark.parametrize("argument", [
-    "test_file", "python_file", "integration_file", "split_package", "mirror_directory", "script_test_file"])
+    "test_file", "python_file", "integration_file", "unit_file", "split_package", "mirror_directory",
+    "script_test_file", "source_module"])
 def test_every_parametrized_argument_is_used_by_a_rule(argument):
     assert any(argument in inspect.signature(member).parameters for _, member in inspect.getmembers(suite.TestRex, inspect.isfunction))

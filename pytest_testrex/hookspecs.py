@@ -13,3 +13,4 @@ def pytest_testrex_requirement_checkers(config):
     any unavailable name is skipped while collecting, before its fixtures run.
     Every marker in [tool.testrex] requirement_markers needs a check.
     """
+    raise NotImplementedError

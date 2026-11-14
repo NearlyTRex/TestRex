@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.requires_binary("bash")
+pytestmark = [pytest.mark.integration, pytest.mark.requires_binary("bash")]
 
 # --- end to end ---------------------------------------------------------
 

@@ -223,9 +223,9 @@ def test_configure_is_inert_when_disabled_or_on_a_worker(tmp_path, monkeypatch):
         assert config.js_cov_dir is None
         js_cov.pytest_unconfigure(config)
         session = SimpleNamespace(config=config, exitstatus=0)
-        js_cov.pytest_sessionfinish(session, 0)
+        js_cov.pytest_sessionfinish(session)
         assert session.exitstatus == 0
-        js_cov.pytest_terminal_summary(None, 0, config)
+        js_cov.pytest_terminal_summary(None, config)
     assert "NODE_V8_COVERAGE" not in os.environ
 
 
@@ -277,12 +277,12 @@ def test_session_finish_measures_gates_and_reports(tmp_path):
     try:
         write_coverage(pathlib.Path(config.js_cov_dir), tmp_path / "s.js", [[(0, 12, 1), (4, 10, 0)]])
         session = SimpleNamespace(config=config, exitstatus=0)
-        js_cov.pytest_sessionfinish(session, 0)
+        js_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         assert config.js_cov_results["s.js"]["missed_source"] == ["|| b()"]
         lines = []
         reporter = SimpleNamespace(write_sep=lambda *a, **k: lines.append(a[1]), write_line=lines.append)
-        js_cov.pytest_terminal_summary(reporter, 0, config)
+        js_cov.pytest_terminal_summary(reporter, config)
         assert lines[0] == "javascript coverage"
         assert lines[1].startswith("JavaScript coverage (branches count as statements)")
         assert "s.js:1  || b()" in lines[1]
@@ -296,11 +296,11 @@ def test_a_script_that_cannot_be_parsed_fails_the_run_and_says_which(tmp_path):
     js_cov.pytest_configure(config)
     try:
         session = SimpleNamespace(config=config, exitstatus=0)
-        js_cov.pytest_sessionfinish(session, 0)
+        js_cov.pytest_sessionfinish(session)
         assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
         lines = []
         reporter = SimpleNamespace(write_sep=lambda *a, **k: lines.append(a[1]), write_line=lines.append)
-        js_cov.pytest_terminal_summary(reporter, 0, config)
+        js_cov.pytest_terminal_summary(reporter, config)
         assert lines[1].startswith("Could not measure: bad.js: tree-sitter-javascript")
         assert "--js-cov-exclude" in lines[2]
     finally:

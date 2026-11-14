@@ -29,6 +29,7 @@ takes it from the `shell_traced_env` fixture instead. Only bash is traced:
 """
 
 import functools
+import importlib
 import os
 import re
 import shutil
@@ -96,13 +97,13 @@ class ShellParseError(statement_coverage.SourceError):
 def get_parser():
     """The tree-sitter-bash parser, or ShellParseError saying how to install it."""
     try:
-        import tree_sitter_bash
-        from tree_sitter import Language, Parser
+        tree_sitter_bash = importlib.import_module("tree_sitter_bash")
+        tree_sitter = importlib.import_module("tree_sitter")
     except ImportError as error:
         raise ShellParseError(
             "shell coverage needs tree-sitter-bash; install it with: pip install \"pytest-testrex[shell]\", "
             "or add tree-sitter and tree-sitter-bash to the hash-locked test requirements") from error
-    return Parser(Language(tree_sitter_bash.language()))
+    return tree_sitter.Parser(tree_sitter.Language(tree_sitter_bash.language()))
 
 
 def line_of(point):
@@ -207,7 +208,7 @@ def find_statements(source):
         elif is_simple(node):
             found.append(span(node))
             walk_arguments(node)
-        elif node.type == "for_statement" or node.type == "c_style_for_statement":
+        elif node.type in ("for_statement", "c_style_for_statement"):
             children = node.children
             body = next(index for index, child in enumerate(children) if child.type == "do_group")
             found.append((line_of(node.start_point), line_of(children[body - 1].end_point)))
@@ -522,7 +523,7 @@ def shell_traced_env():
     return build
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(session):
     config = session.config
     if not getattr(config, "shell_cov_scratch", None):
         return
@@ -542,7 +543,7 @@ def pytest_sessionfinish(session, exitstatus):
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
+def pytest_terminal_summary(terminalreporter, config):
     error = getattr(config, "shell_cov_error", None)
     if error:
         terminalreporter.write_sep("=", "shell coverage")

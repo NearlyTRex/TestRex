@@ -113,3 +113,53 @@ def test_library_paths_are_absolute_and_the_rest_is_kept(tmp_path):
     assert (loaded.wrappers, loaded.standards, loaded.baseline) == ({"open": "fileops"}, ("no-print",), {"no-print": 4})
     assert (loaded.doc_style, loaded.doc_max_lines, loaded.max_function_lines, loaded.max_nesting) == ("comment", 2, 40, 3)
     assert loaded.max_module_lines == 900
+
+
+def test_the_new_rules_are_on_unless_turned_off(tmp_path):
+    loaded = settings.from_table({}, str(tmp_path))
+
+    assert loaded.integration_marker == "integration"
+    assert (loaded.ruff, loaded.ruff_format) == (True, False)
+    assert (loaded.pylint_source, loaded.require_tests, loaded.check_coverage_config) == (True, True, True)
+    assert loaded.coverage_omit_allowed == ("Tests/*", ".venv/*", "venv/*")
+    assert loaded.coverage_exclude_allowed == ("if __name__ == .__main__.:",)
+
+
+def test_the_library_and_the_further_sources_need_tests_unless_require_tests_is_off(tmp_path):
+    table = {"library_targets": ["pkg"], "require_tests_for": ["scripts", "run.py"], "tests_not_required": ["pkg/x.mjs"]}
+
+    loaded = settings.from_table(table, str(tmp_path))
+    off = settings.from_table(dict(table, require_tests = False), str(tmp_path))
+
+    assert loaded.tested_sources == tuple(str(tmp_path / path) for path in ("pkg", "scripts", "run.py"))
+    assert loaded.tests_not_required == (str(tmp_path / "pkg" / "x.mjs"),)
+    assert off.tested_sources == ()
+
+
+def test_the_library_rcfile_is_the_shipped_one_unless_the_repository_names_its_own(tmp_path):
+    shipped = settings.from_table({}, str(tmp_path)).source_rcfile
+    own = settings.from_table({"pylint_source_rcfile": "pyproject.toml"}, str(tmp_path)).source_rcfile
+
+    assert shipped == os.path.join(os.path.dirname(settings.__file__), "library-pylintrc")
+    assert os.path.isfile(shipped)
+    assert own == str(tmp_path / "pyproject.toml")
+
+
+def test_pylint_over_the_library_may_be_baselined(tmp_path):
+    assert settings.from_table({"baseline": {"pylint-source": 12}}, str(tmp_path)).baseline == {"pylint-source": 12}
+
+
+@pytest.mark.parametrize("value, expected, exact", [
+    (True, bool, True), (1, int, True), (True, int, False), (1, bool, False), ("a", str, True), ([], list, True)])
+def test_a_bool_is_only_a_bool_and_not_the_int_it_subclasses(value, expected, exact):
+    assert settings.is_exactly(value, expected) is exact
+
+
+@pytest.mark.parametrize("table, message", [
+    ({"min_test_files": True}, "min_test_files must be a int"),
+    ({"baseline": {"no-print": True}}, "baseline counts must be whole numbers of findings: ['no-print']"),
+    ({"integration_marker": False}, "integration_marker must be a str"),
+])
+def test_a_bool_is_refused_where_a_number_or_name_is_wanted(tmp_path, table, message):
+    with pytest.raises(settings.SettingsError, match = re.escape(message)):
+        settings.from_table(table, str(tmp_path))

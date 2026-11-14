@@ -7,6 +7,7 @@ import time
 import pytest
 
 pytestmark = [
+    pytest.mark.integration,
     pytest.mark.requires_binary("sh", "sleep"),
     pytest.mark.skipif(not sys.platform.startswith("linux"), reason = "the guard reads /proc"),
 ]

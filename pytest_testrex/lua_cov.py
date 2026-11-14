@@ -426,7 +426,7 @@ def pytest_unconfigure(config):
     shutil.rmtree(scratch, ignore_errors=True)
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(session):
     config = session.config
     if not getattr(config, "lua_cov_scratch", None):
         return
@@ -434,5 +434,5 @@ def pytest_sessionfinish(session, exitstatus):
         root, sources, config.lua_cov_trace_dir, exclude))
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
+def pytest_terminal_summary(terminalreporter, config):
     statement_coverage.summarize(terminalreporter, config, PREFIX, "Lua coverage", "Script")

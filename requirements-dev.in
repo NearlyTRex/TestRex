@@ -2,6 +2,8 @@
 #   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-dev.txt requirements-dev.in
 pytest
 pylint
+# The meta suite runs it, as Workflows' CI does
+ruff
 # Shell coverage's parser, and shfmt to cross-check it against
 tree-sitter
 tree-sitter-bash

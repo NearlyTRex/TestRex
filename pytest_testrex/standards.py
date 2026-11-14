@@ -5,6 +5,7 @@ import re
 import tokenize
 
 # Local imports
+from pytest_testrex import quality
 from pytest_testrex.discovery import FUNCTION_DEFS
 
 ###########################################################
@@ -17,8 +18,15 @@ from pytest_testrex.discovery import FUNCTION_DEFS
 # caller; and a few Python hazards that read as fine and misbehave later.
 ###########################################################
 
-STANDARDS = ("no-print", "no-exit", "mutable-defaults", "bare-except", "import-time-io",
-             "no-narration", "commented-out-code", "long-functions", "long-modules")
+STANDARDS = ("no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
+             "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules")
+
+# A suppression comment that silences more than one named problem
+BLANKET = (
+    (re.compile(r"#\s*noqa\b(?!\s*:\s*[A-Za-z]+\d)", re.IGNORECASE), "noqa without the codes it silences"),
+    (re.compile(r"#\s*type:\s*ignore\b(?!\[)"), "type: ignore without the codes it silences"),
+    (re.compile(r"#\s*pylint:\s*(skip-file|disable\s*=\s*all\b)"), "pylint switched off for the file or for every message"),
+)
 
 # Phrases that tell how the code came to be rather than what it is: a
 # conversation, an edit history, the narration of the work, or a flourish.
@@ -138,6 +146,11 @@ def bare_excepts(tree):
     return ["line %d" % node.lineno for node in ast.walk(tree) if isinstance(node, ast.ExceptHandler) and node.type is None]
 
 
+# line N for every except handler whose whole body is pass, which hides the failure it catches
+def silent_excepts(tree):
+    return ["line %d" % line for line in quality.swallowed_handlers(tree)]
+
+
 # An if __name__ == "__main__": block, which only runs when the module is run as a script
 def is_main_guard(node):
     return isinstance(node, ast.If) and "__name__" in ast.unparse(node.test) and "__main__" in ast.unparse(node.test)
@@ -185,6 +198,15 @@ def comments_and_docstrings(source, tree):
         if docstring:
             found.append((node.body[0].lineno, docstring))
     return sorted(found)
+
+
+# "line N: what" for each lint suppression comment that silences more than one named problem
+def blanket_suppressions(source):
+    found = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            found.extend("line %d: %s" % (token.start[0], why) for pattern, why in BLANKET if pattern.search(token.string))
+    return found
 
 
 # "line N: phrase" for each comment or docstring that narrates its own history
@@ -256,6 +278,7 @@ CHECKS = {
     "no-exit": exits,
     "mutable-defaults": mutable_defaults,
     "bare-except": bare_excepts,
+    "silent-except": silent_excepts,
     "import-time-io": import_time_io,
 }
 
@@ -263,6 +286,7 @@ CHECKS = {
 SOURCE_CHECKS = {
     "no-narration": narration,
     "commented-out-code": commented_out_code,
+    "blanket-suppression": lambda tree, source: blanket_suppressions(source),
 }
 
 # Standards that also hold for the tests, since a test file is read as often as the code

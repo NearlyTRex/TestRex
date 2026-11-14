@@ -176,3 +176,140 @@ def test_luacheck_runs_once_per_argument_list(commands, tmp_path):
     assert [command for command, _ in commands] == [
         ["luacheck", "--no-color", "--codes", "--no-config", "--std", "max+busted", "a_spec.lua"],
         ["luacheck", "--no-color", "--codes", "--no-config", "--std", "max", "a.lua"]]
+
+
+# Stands in for single pylint runs, giving each its (stdout, stderr) in turn; returns the arguments of each run
+def fake_pylint(monkeypatch, outputs):
+    calls = []
+
+    def run_once(rcfile, cwd, roots, *arguments):
+        calls.append(arguments)
+        stdout, stderr = outputs[len(calls) - 1]
+        return subprocess.CompletedProcess(["pylint"], 1, stdout = stdout, stderr = stderr)
+    monkeypatch.setattr(lint, "run_pylint_once", run_once)
+    return calls
+
+
+@pytest.mark.parametrize("where", ["stdout", "stderr"])
+def test_a_run_that_crashed_is_repeated_in_one_process(monkeypatch, where):
+    crash = "Traceback (most recent call last):\n  AttributeError: 'code' object has no attribute 'co_lnotab'\n"
+    calls = fake_pylint(monkeypatch, [(crash, "") if where == "stdout" else ("", crash), ("sample.py:1:0: W0611: unused", "")])
+
+    result = lint.run_pylint("rc", "cwd", [], "sample.py")
+
+    assert calls == [("sample.py",), ("--jobs=1", "sample.py")]
+    assert "W0611" in result.stdout
+
+
+def test_a_run_that_reports_is_not_repeated(monkeypatch):
+    calls = fake_pylint(monkeypatch, [("sample.py:1:0: W0611: unused", "")])
+
+    result = lint.run_pylint("rc", "cwd", [], "sample.py")
+
+    assert calls == [("sample.py",)]
+    assert "W0611" in result.stdout
+
+
+def test_a_crash_in_one_process_is_reported_as_it_is(monkeypatch):
+    crash = "Traceback (most recent call last):\n"
+    calls = fake_pylint(monkeypatch, [(crash, ""), (crash + "again", "")])
+
+    result = lint.run_pylint("rc", "cwd", [], "sample.py")
+
+    assert len(calls) == 2
+    assert result.stdout.endswith("again")
+
+
+def test_only_message_lines_are_counted_as_messages():
+    output = "\n".join([
+        "************* Module pkg.mod",
+        "pkg/mod.py:3:0: W0611: Unused import os (unused-import)",
+        "pkg/sub dir/b.py:10:4: E1101: Instance has no member (no-member)",
+        "",
+        "-----------------------------------",
+        "Your code has been rated at 5.00/10"])
+
+    assert lint.pylint_messages(output) == [
+        "pkg/mod.py:3:0: W0611: Unused import os (unused-import)",
+        "pkg/sub dir/b.py:10:4: E1101: Instance has no member (no-member)"]
+
+
+def test_a_fatal_message_or_usage_error_means_pylint_did_not_finish():
+    assert 1 & lint.UNFINISHED and 32 & lint.UNFINISHED
+    assert not (2 | 4 | 8 | 16) & lint.UNFINISHED
+
+
+def test_the_shipped_library_rcfile_leaves_documentation_and_line_length_to_other_checks(write_file, tmp_path):
+    path = write_file("pkg/mod.py", "def run(value):\n    return '%s" + "x" * 120 + "' % value\n")
+
+    result = lint.run_pylint(settings.from_table({}, str(tmp_path)).source_rcfile, str(tmp_path), [], str(path))
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_shipped_library_rcfile_still_finds_defects(write_file, tmp_path):
+    path = write_file("pkg/mod.py", "import os\n\n\ndef run(path):\n    return open(path).read()\n")
+
+    result = lint.run_pylint(settings.from_table({}, str(tmp_path)).source_rcfile, str(tmp_path), [], str(path))
+
+    assert "unused-import" in result.stdout
+    assert "unspecified-encoding" in result.stdout
+
+
+def test_ruff_beside_this_python_is_preferred_to_one_on_path(monkeypatch):
+    monkeypatch.setattr(lint.importlib.util, "find_spec", lambda name: object())
+
+    assert lint.ruff_command() == [lint.sys.executable, "-m", "ruff"]
+
+
+def test_ruff_on_path_is_used_when_none_is_installed_beside_this_python(monkeypatch):
+    monkeypatch.setattr(lint.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(lint.shutil, "which", lambda name: "/opt/bin/" + name)
+
+    assert lint.ruff_command() == ["/opt/bin/ruff"]
+
+
+def test_without_any_ruff_there_is_no_command(monkeypatch):
+    monkeypatch.setattr(lint.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(lint.shutil, "which", lambda name: None)
+
+    assert lint.ruff_command() is None
+
+
+@pytest.mark.parametrize("name, text, found", [
+    ("ruff.toml", "", True),
+    (".ruff.toml", "", True),
+    ("pyproject.toml", "[tool.ruff]\nline-length = 100\n", True),
+    ("pyproject.toml", "[tool.ruff.lint]\nselect = ['F']\n", True),
+    ("pyproject.toml", "[tool.ruffle]\n", False),
+    ("pyproject.toml", "[project]\nname = 'x'\n# [tool.ruff]\n", False),
+])
+def test_the_repository_ruff_config_is_found(write_file, tmp_path, name, text, found):
+    write_file(name, text)
+
+    assert lint.has_ruff_config(str(tmp_path)) is found
+
+
+def test_without_a_config_ruff_checks_only_the_rules_ci_selects(tmp_path):
+    assert lint.ruff_runs(str(tmp_path), False) == [
+        ["check", "--no-cache", "--output-format", "concise", "--isolated", "--select", "E4,E7,E9,F", "."]]
+
+
+def test_under_the_repository_config_ruff_is_left_to_read_it(write_file, tmp_path):
+    write_file("ruff.toml", "")
+
+    assert lint.ruff_runs(str(tmp_path), True) == [
+        ["check", "--no-cache", "--output-format", "concise", "."], ["format", "--check", "--no-cache", "."]]
+
+
+def test_formatting_is_checked_under_the_same_config_as_the_rules(tmp_path):
+    assert lint.ruff_runs(str(tmp_path), True)[1] == ["format", "--check", "--no-cache", "--isolated", "."]
+
+
+def test_ruff_runs_once_per_argument_list_from_the_repository(commands, monkeypatch, tmp_path):
+    monkeypatch.setattr(lint, "ruff_command", lambda: ["ruff"])
+
+    results = lint.run_ruff(str(tmp_path), True)
+
+    assert [result.returncode for result in results] == [0, 0]
+    assert commands == [(["ruff"] + arguments, str(tmp_path)) for arguments in lint.ruff_runs(str(tmp_path), True)]

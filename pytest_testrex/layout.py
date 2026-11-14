@@ -1,6 +1,7 @@
 # Imports
 import fnmatch
 import os
+import re
 
 # Local imports
 from pytest_testrex.discovery import defines_tests, is_ignored, parsed
@@ -123,3 +124,66 @@ def single_file_twin(package):
 def is_meta(directory, tests_dir, meta_dirs):
     relative_path = os.path.relpath(directory, tests_dir)
     return any(relative_path == meta or relative_path.startswith(meta + os.sep) for meta in meta_dirs)
+
+
+###########################################################
+# Source modules
+#
+# Every module of the library has tests: a test_<module>.py, or a split
+# test_<module>/ package, at its mirrored path in some suite. A script in a
+# language with standalone tests may be covered by one of those instead.
+###########################################################
+
+# Directories that never hold repository source
+NON_SOURCE_DIRECTORIES = {"__pycache__", "node_modules", "build", "dist", "site-packages", "venv"}
+
+
+# Whether a directory name is one source is never read from: hidden, a cache, a
+# virtualenv, a build output or a package's metadata
+def is_non_source_directory(name):
+    return name in NON_SOURCE_DIRECTORIES or name.startswith(".") or name.endswith(".egg-info")
+
+
+# The name a test module uses for a source file: 10-create-resources.py becomes
+# create_resources, since a module name can hold neither a dash nor an ordering number
+def source_stem(filename):
+    stem = os.path.splitext(filename)[0]
+    return re.sub(r"^\d+[-_]", "", stem).replace("-", "_")
+
+
+# The source files under one directory, as paths relative to the repository; the
+# tests directory is not source
+def source_files_in(directory, repo_root, extensions, tests_dir):
+    found = []
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = sorted(
+            name for name in dirs if not is_non_source_directory(name) and os.path.join(root, name) != tests_dir)
+        found.extend(os.path.relpath(os.path.join(root, name), repo_root) for name in sorted(files)
+                     if name.endswith(tuple(extensions)) and name != "__init__.py")
+    return found
+
+
+# Every source file under the targets (directories or single files), as paths
+# relative to the repository; __init__.py holds no behaviour of its own
+def discover_source_modules(repo_root, targets, extensions, tests_dir):
+    found = set()
+    for target in targets:
+        if os.path.isfile(target):
+            found.add(os.path.relpath(target, repo_root))
+        else:
+            found.update(source_files_in(target, repo_root, extensions, tests_dir))
+    return sorted(found)
+
+
+# Where the tests for a source file would live, in the mirrored directory of
+# any suite: test_<stem>.py, a split test_<stem>/ package, or a standalone test
+# file named by one of the patterns, as greet.test.js for greet.js
+def mirrored_tests(source, suite_dirs, script_patterns = ()):
+    name = "test_" + source_stem(os.path.basename(source))
+    script_names = [pattern.replace("*", os.path.splitext(os.path.basename(source))[0])
+                    for pattern in script_patterns if pattern.count("*") == 1]
+    found = []
+    for suite_dir in suite_dirs:
+        directory = os.path.join(suite_dir, os.path.dirname(source))
+        found.extend(os.path.join(directory, candidate) for candidate in [name + ".py", name] + script_names)
+    return found

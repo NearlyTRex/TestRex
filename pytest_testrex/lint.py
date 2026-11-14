@@ -1,4 +1,5 @@
 # Imports
+import importlib.util
 import os
 import re
 import shutil
@@ -30,17 +31,95 @@ def pylint_targets(tests_dir, suite_files):
         os.path.join(tests_dir, name) for name in sorted(os.listdir(tests_dir)) if name.endswith(".py")]
 
 
-# Run pylint with the rcfile from cwd, with roots on PYTHONPATH, and return the finished process
-def run_pylint(rcfile, cwd, roots, *arguments):
+# What a crashed Python process prints
+CRASH = "Traceback (most recent call last)"
+
+
+# Run pylint once with the rcfile from cwd, with roots on PYTHONPATH, and return the finished process
+def run_pylint_once(rcfile, cwd, roots, *arguments):
     env = dict(os.environ, PYTHONPATH = os.pathsep.join(roots))
     return subprocess.run(
         [sys.executable, "-m", "pylint", "--rcfile=" + rcfile, "--score=no", *arguments],
         cwd = cwd, env = env, capture_output = True, text = True, check = False)
 
 
+# Run pylint and return the finished process. Its parallel mode pickles with dill, which fails
+# on some newer Pythons and crashes pylint, so a run that crashed is repeated in one process.
+def run_pylint(rcfile, cwd, roots, *arguments):
+    finished = run_pylint_once(rcfile, cwd, roots, *arguments)
+    if CRASH in finished.stdout + finished.stderr:
+        finished = run_pylint_once(rcfile, cwd, roots, "--jobs=1", *arguments)
+    return finished
+
+
+# One reported message, as path:line:column: code: text
+MESSAGE = re.compile(r"^\S.*:\d+:\d+: [A-Z]\d{4}: ", re.MULTILINE)
+
+# The bits of pylint's exit status that mean it did not finish: a fatal message, or a usage error
+UNFINISHED = 1 | 32
+
+
+# The messages in pylint's output, one line each
+def pylint_messages(output):
+    return [line for line in output.splitlines() if MESSAGE.match(line)]
+
+
 # Pylint arguments that turn every rule off except these
 def only_rules(rules):
     return ["--disable=all", "--enable=" + ",".join(rules)]
+
+###########################################################
+# Ruff
+#
+# ruff runs over the whole repository from its root, as Workflows' CI runs it:
+# under the repository's own config when it has one, else with only the defect
+# rules CI selects, since ruff's own default set grew past them.
+###########################################################
+
+# The rules Workflows' python-ci selects for a repository without a ruff config
+DEFAULT_RUFF_SELECT = "E4,E7,E9,F"
+
+# Files ruff reads its config from, besides a pyproject.toml with a [tool.ruff] table
+RUFF_CONFIGS = ("ruff.toml", ".ruff.toml")
+
+
+# The command that runs ruff: the one installed beside this Python, else the one on PATH, else None
+def ruff_command():
+    if importlib.util.find_spec("ruff") is not None:
+        return [sys.executable, "-m", "ruff"]
+    found = shutil.which("ruff")
+    return [found] if found else None
+
+
+# Whether the repository configures ruff itself
+def has_ruff_config(repo_root):
+    if any(os.path.isfile(os.path.join(repo_root, name)) for name in RUFF_CONFIGS):
+        return True
+    pyproject = os.path.join(repo_root, "pyproject.toml")
+    if not os.path.isfile(pyproject):
+        return False
+    with open(pyproject, "r", encoding = "utf-8") as handle:
+        return re.search(r"^\[tool\.ruff\b", handle.read(), re.MULTILINE) is not None
+
+
+# The ruff argument lists to run: check, under the repository's config or
+# else CI's rules and no other config, then format --check when formatting is held
+def ruff_runs(repo_root, check_format):
+    own = has_ruff_config(repo_root)
+    config = [] if own else ["--isolated"]
+    rules = [] if own else ["--select", DEFAULT_RUFF_SELECT]
+    runs = [["check", "--no-cache", "--output-format", "concise", *config, *rules, "."]]
+    if check_format:
+        runs.append(["format", "--check", "--no-cache", *config, "."])
+    return runs
+
+
+# Run ruff over repo_root, and return the finished processes
+def run_ruff(repo_root, check_format):
+    command = ruff_command()
+    return [
+        subprocess.run(command + arguments, cwd = repo_root, capture_output = True, text = True, check = False)
+        for arguments in ruff_runs(repo_root, check_format)]
 
 ###########################################################
 # eslint and luacheck
