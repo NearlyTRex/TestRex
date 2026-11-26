@@ -68,6 +68,9 @@ FAILED Tests/unit/meta/test_testrex.py::TestRex::test_every_test_checks_somethin
     asserts nothing: ['test_parse (line 12)']
 ```
 
+A rule over a kind of file the repository has none of, such as split packages, reports one skip
+that says so instead of an empty parameter set.
+
 ## Layout
 
 Each suite mirrors the repository: a test lives at the path of the code it covers.
@@ -93,7 +96,7 @@ mirrors the source, two suites can hold files with the same basename, so run pyt
 
 | Area | A test file fails when |
 |---|---|
-| Discovery | fewer than `min_test_files` were found, or a suite holds none, so the rules would be guarding nothing; a test file sits outside the suites |
+| Discovery | fewer than `min_test_files` were found, or a suite holds none, so the rules would be guarding nothing; a test file sits outside the suites; the pytest configuration leaves `empty_parameter_set_mark` at anything but `fail_at_collect`, so a parametrize list that comes back empty skips its test instead of failing |
 | Hygiene | a test, test method, helper or constant is defined twice; an import sits below the header; it is longer than `max_lines`; it holds no test |
 | Practices | a test changes the process directly (`os.environ`, `os.chdir`, `sys.path`, `sys.modules`, `sys.argv`, the standard streams, the umask) instead of through `monkeypatch`; `pytest.raises(Exception)` has no `match`; a `pytest.raises` block holds more than the call that raises; a skip, `skipif` or `xfail` gives no reason; a `# noqa` or `# type: ignore` names no codes, or pylint is switched off for a file or for everything |
 | Quality | a test checks nothing; every check sits in a branch, loop or try; an assertion is true by construction; it only checks `is not None` or `isinstance`; an `except` swallows silently; a raising callable is built from `(_ for _ in ()).throw()`; a helper is copied between files |
