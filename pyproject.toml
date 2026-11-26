@@ -64,6 +64,8 @@ testpaths = ["Tests"]
 # The tree mirrors the source, so unit/ and any later suite can hold files
 # with the same basename, which the default prepend mode cannot import apart
 addopts = "--strict-markers -ra --import-mode=importlib -p pytester"
+# A parametrize list that comes back empty is a collection error, not a silent skip
+empty_parameter_set_mark = "fail_at_collect"
 
 [tool.ruff.lint]
 # Workflows' default defect set, pinned so a change there is a deliberate

@@ -135,8 +135,13 @@ def pytest_generate_tests(metafunc):
     if metafunc.cls is None or not issubclass(metafunc.cls, suite.TestRex):
         return
     for argument, (values, ids) in get_survey(metafunc.config).parameters().items():
-        if argument in metafunc.fixturenames:
-            metafunc.parametrize(argument, values, ids = ids)
+        if argument not in metafunc.fixturenames:
+            continue
+        if not values:
+            # A repository with none of these is a skip that says so, never an empty parameter set
+            reason = "no %ss in this repository" % argument.replace("_", " ")
+            values, ids = [pytest.param(None, marks = pytest.mark.skip(reason = reason))], ["none"]
+        metafunc.parametrize(argument, values, ids = ids)
 
 
 # The survey, for the meta suite's checks

@@ -227,6 +227,12 @@ class TestRex:
     def test_every_test_file_holds_at_least_one_test(self, test_file):
         assert defines_tests(parsed(test_file)), "no tests in a file named like one"
 
+    def test_an_empty_parameter_list_fails_collection(self, pytestconfig):
+        # Under pytest's default, a parametrize list that comes back empty skips its test,
+        # so a filter that stops matching drops every case it used to run without a failure.
+        assert pytestconfig.getini("empty_parameter_set_mark") == "fail_at_collect", (
+            "set empty_parameter_set_mark = fail_at_collect in the pytest configuration")
+
     def test_every_script_test_file_holds_at_least_one_test(self, script_test_file, testrex_survey):
         syntax, tree = testrex_survey.read_script(script_test_file)
 

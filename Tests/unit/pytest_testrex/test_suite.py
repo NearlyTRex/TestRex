@@ -26,6 +26,9 @@ from pytest_testrex.settings import LIBRARY_RULES
 META = "from pytest_testrex import suite\n\n\nclass TestRex(suite.TestRex):\n    pass\n"
 
 CLEAN_SETTINGS = """
+    [tool.pytest.ini_options]
+    empty_parameter_set_mark = "fail_at_collect"
+
     [tool.testrex]
     suites = ["unit", "integration"]
     signature_packages = ["pkg"]
@@ -458,6 +461,25 @@ def test_unconfigured_checks_skip(pytester):
 
     assert "Skipped: no signature_packages in [tool.testrex]" in reasons
     assert "Skipped: no library_targets in [tool.testrex]" in reasons
+
+
+
+def test_a_kind_of_file_the_repository_lacks_skips_its_checks_with_a_reason(pytester):
+    write_repository(pytester, """
+        [tool.pytest.ini_options]
+        empty_parameter_set_mark = "fail_at_collect"
+
+        [tool.testrex]
+        suites = ["unit"]
+        integration_suites = []
+        """, {"Tests/unit/meta/test_rex.py": META})
+
+    run = run_the_suite(pytester)
+    _, skipped, _ = run.listoutcomes()
+    reasons = {report.longrepr[2] for report in skipped}
+
+    assert run.getfailedcollections() == []
+    assert {"Skipped: no script test files in this repository", "Skipped: no integration files in this repository"} <= reasons
 
 
 def test_rules_turned_off_skip(pytester):
