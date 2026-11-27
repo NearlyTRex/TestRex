@@ -98,6 +98,7 @@ doc_max_lines = 3
 standards = [
     "no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
     "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
+    "import-cycles",
 ]
 # The eslint config shipped for repositories without one; the integration
 # suite's eslint runs read it

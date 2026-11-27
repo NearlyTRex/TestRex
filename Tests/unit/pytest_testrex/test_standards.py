@@ -233,7 +233,7 @@ def test_a_module_past_the_limit_is_one_finding_saying_how_to_split_it():
 
 def test_every_standard_has_a_check():
     assert set(standards.STANDARDS) == set(standards.CHECKS) | set(standards.SOURCE_CHECKS) | {
-        "long-functions", "long-modules"}
+        "long-functions", "long-modules", "import-cycles"}
 
 
 def test_an_except_whose_whole_body_is_pass_is_silent(parse_sample):

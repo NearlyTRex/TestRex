@@ -155,6 +155,7 @@ The rules above read the tests. These read the code under `library_targets`, and
 | `blanket-suppression` | `standards` | a `# noqa` or `# type: ignore` names no codes, or pylint is switched off for a file or for every message |
 | `long-functions` | `standards` | a function runs past `max_function_lines` (40) or nests past `max_nesting` (3) |
 | `long-modules` | `standards` | a module runs past `max_module_lines` (900), the same limit test files have |
+| `import-cycles` | `standards` | modules import each other around a loop, counted as Python runs the imports: importing `a.b.c` runs `a/__init__.py` and `a/b/__init__.py` first, so a cycle through a package's `__init__` counts, which pylint's `cyclic-import` misses; imports inside functions or under `if TYPE_CHECKING:` don't |
 
 A module past the limit becomes a package of the same name. Its class is assembled from mixin
 modules, one per area, and re-exported, so callers still `from pkg.sync import Syncer` and the class

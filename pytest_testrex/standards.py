@@ -19,7 +19,8 @@ from pytest_testrex.discovery import FUNCTION_DEFS
 ###########################################################
 
 STANDARDS = ("no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
-             "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules")
+             "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
+             "import-cycles")
 
 # A suppression comment that silences more than one named problem
 BLANKET = (
