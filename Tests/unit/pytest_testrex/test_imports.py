@@ -135,6 +135,24 @@ def test_a_loop_is_the_shortest_one_through_the_groups_first_module(write_file, 
     assert [text for _, text in found] == ["import cycle among 4 modules: pkg.a -> pkg.d -> pkg.a"]
 
 
+def test_a_module_reached_twice_in_one_round_is_searched_once(write_file, tmp_path):
+    found = cycles_in(write_file, tmp_path, {
+        "src/pkg/__init__.py": "",
+        "src/pkg/a.py": "from pkg import b, c\n",
+        "src/pkg/b.py": "from pkg import d\n",
+        "src/pkg/c.py": "from pkg import d\n",
+        "src/pkg/d.py": "from pkg import a\n",
+    })
+
+    assert [text for _, text in found] == ["import cycle among 4 modules: pkg.a -> pkg.b -> pkg.d -> pkg.a"]
+
+
+def test_a_group_with_no_loop_back_to_its_start_is_its_own_path():
+    graph = {"a": {"b"}, "b": set()}
+
+    assert imports.shortest_loop(graph, ["a", "b"]) == ["a", "b"]
+
+
 def test_separate_cycles_are_each_reported(write_file, tmp_path):
     found = cycles_in(write_file, tmp_path, {
         "src/pkg/__init__.py": "",
