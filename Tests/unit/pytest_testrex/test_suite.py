@@ -45,6 +45,7 @@ CLEAN_SETTINGS = """
     standards = [
         "no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
         "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
+        "import-cycles",
     ]
     """
 
@@ -175,6 +176,7 @@ BROKEN_SETTINGS = """
     standards = [
         "no-print", "no-exit", "mutable-defaults", "bare-except", "silent-except", "import-time-io",
         "no-narration", "commented-out-code", "blanket-suppression", "long-functions", "long-modules",
+        "import-cycles",
     ]
     """
 
@@ -300,6 +302,8 @@ BROKEN_FILES = {
         import os  # noqa
         import sys
 
+        from pkg import orphan
+
         HOME = os.environ["HOME"]
 
 
@@ -349,7 +353,7 @@ BROKEN_FILES = {
                         if c:
                             pass
         """,
-    "pkg/orphan.py": "VALUE = 1  # pragma: no cover\n",
+    "pkg/orphan.py": "from pkg import mod\nVALUE = 1  # pragma: no cover\n",
     "Tests/test_stray.py": "def test_stray():\n    assert len('a') == 1\n",
     "Tests/unit/meta/test_rex.py": META,
     "Tests/unit/pkg/test_mod.py": BROKEN_MOD_TESTS,

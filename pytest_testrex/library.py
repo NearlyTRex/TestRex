@@ -2,7 +2,7 @@
 import os
 
 # Local imports
-from pytest_testrex import documentation, standards
+from pytest_testrex import documentation, imports, standards
 from pytest_testrex.discovery import parsed
 
 ###########################################################
@@ -86,8 +86,11 @@ def file_findings(settings, rule, path):
     return standards.CHECKS[rule](tree)
 
 
-# "path: finding" for everything a rule finds across the library
+# "path: finding" for everything a rule finds across the library; import cycles span files,
+# so each is listed under the file of its first module
 def findings(settings, rule, files):
+    if rule == "import-cycles":
+        return ["%s: %s" % (os.path.relpath(path, settings.repo_root), cycle) for path, cycle in imports.cycles(files)]
     return ["%s: %s" % (os.path.relpath(path, settings.repo_root), finding)
             for path in files for finding in file_findings(settings, rule, path)]
 
